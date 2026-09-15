@@ -1,68 +1,45 @@
-val uniqueGlobalMonths =
-    allCalculatedSnapshots
-        .map { it.yearMonth }
-        .toSet()
-
 val existingGlobalSummaries =
-    uniqueGlobalMonths.associateWith { yearMonth ->
+    calculatedSnapshots.associateWith { snapshot ->
         getGlobalSummaryData(
             transaction = transaction,
-            yearMonth = yearMonth
+            yearMonth = snapshot.yearMonth
         )
     }
 
 val updatedGlobalSummaries =
-    mutableMapOf<YearMonth, GlobalSummary>()
-
-affectedClientIds.forEach { clientId ->
-    val clientSnapshots =
-        allCalculatedSnapshots.filter {
-            it.clientId == clientId
-        }
-
-    clientSnapshots.forEach { newSnapshot ->
+    calculatedSnapshots.associate { newSnapshot ->
         val yearMonth =
             newSnapshot.yearMonth
 
-        val existingGlobalData =
-            updatedGlobalSummaries[
-                yearMonth
-            ]?.let { summary ->
-                globalSummaryToMap(summary)
-            } ?: existingGlobalSummaries[
-                yearMonth
+        val existingData =
+            existingGlobalSummaries[
+                newSnapshot
             ]
 
         val updatedSummary =
-            if (existingGlobalData == null) {
+            if (existingData == null) {
                 globalSummaryService.rebuildGlobalSummaryForMonth(
                     transaction = transaction,
                     yearMonth = yearMonth,
-                    replacementSnapshots = allCalculatedSnapshots
+                    replacementSnapshots = calculatedSnapshots
                 )
             } else {
                 val oldSnapshot =
-                    oldSnapshotForGlobalByClientMonth[
-                        clientId to yearMonth
+                    oldSnapshotForGlobalByMonth[
+                        yearMonth
                     ] ?: getEffectiveSnapshot(
                         clientId = clientId,
                         yearMonth = yearMonth,
-                        snapshots =
-                        snapshotsByClient[
-                            clientId
-                        ].orEmpty()
+                        snapshots = snapshots
                     )
 
                 globalSummaryService.calculateGlobalSummaryDelta(
                     yearMonth = yearMonth,
-                    existingData = existingGlobalData,
+                    existingData = existingData,
                     oldSnapshot = oldSnapshot,
                     newSnapshot = newSnapshot
                 )
             }
 
-        updatedGlobalSummaries[
-            yearMonth
-        ] = updatedSummary
+        yearMonth to updatedSummary
     }
-}
