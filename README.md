@@ -1,45 +1,62 @@
-package com.clientledger.core.repository.snapshot
+override fun getAllSnapshotsForMonth(
+    transaction: Transaction,
+    yearMonth: YearMonth
+): List<ClientBalanceSnapshot> {
 
-import com.clientledger.core.domain.snapshot.ClientBalanceSnapshot
-import com.google.cloud.firestore.Transaction
-import java.time.YearMonth
+    val query =
+        db.collectionGroup("months")
+            .whereEqualTo("yearMonth", yearMonth.toString())
 
-interface SnapshotRepository {
+    return transaction.get(query)
+        .get()
+        .documents
+        .map { document ->
 
-    fun getSnapshot(clientId: String, yearMonth: YearMonth): ClientBalanceSnapshot?
+            ClientBalanceSnapshot(
+                clientId =
+                    document.getString("clientId")
+                        ?: "",
 
-    fun saveSnapshot(snapshot: ClientBalanceSnapshot)
+                yearMonth =
+                    YearMonth.parse(
+                        document.getString("yearMonth")
+                            ?: document.id
+                    ),
 
-    fun getInitialClientOpeningBalance(clientId: String): Long
+                openingBalance =
+                    document.getLong("openingBalance") ?: 0L,
 
-    fun getAllSnapshotsForClient(clientId: String): List<ClientBalanceSnapshot>
+                totalOrdersCount =
+                    document.getLong("totalOrdersCount")
+                        ?.toInt() ?: 0,
 
-    // Transaction-aware methods
-    fun getSnapshot(
-        transaction: Transaction,
-        clientId: String,
-        yearMonth: YearMonth
-    ): ClientBalanceSnapshot?
+                totalInvoiceAmount =
+                    document.getLong("totalInvoiceAmount") ?: 0L,
 
-    fun saveSnapshot(
-        transaction: Transaction,
-        snapshot: ClientBalanceSnapshot
-    )
+                totalInvoiceAmountWithGst =
+                    document.getLong("totalInvoiceAmountWithGst")
+                        ?: 0L,
 
-    fun getAllSnapshotsForClient(
-        transaction: Transaction,
-        clientId: String
-    ): List<ClientBalanceSnapshot>
+                totalPayments =
+                    document.getLong("totalPayments") ?: 0L,
 
-    fun findLatestSnapshotForClient(transaction: Transaction, clientId: String): ClientBalanceSnapshot?
+                totalExpenses =
+                    document.getLong("totalExpenses") ?: 0L,
 
-    fun getSnapshotsForClientInRange(transaction: Transaction, clientId: String, startMonth: YearMonth, endMonth: YearMonth): List<ClientBalanceSnapshot>
+                closingBalance =
+                    document.getLong("closingBalance") ?: 0L,
 
-    fun getOpeningBalanceSeed(transaction: Transaction, clientId: String, startMonth: YearMonth, fallbackOpeningBalance: Long): Long
+                totalGstAmounts =
+                    document.getLong("totalGstAmounts") ?: 0L,
 
-    fun findLatestSnapshotBefore(
-        clientId: String,
-        yearMonth: YearMonth
-    ): ClientBalanceSnapshot?
+                totalDiscount =
+                    document.getLong("totalDiscount") ?: 0L,
 
+                updatedAt =
+                    document.getDate("updatedAt")
+                        ?.toInstant()
+                        ?: Instant.now()
+            )
+        }
+        .sortedBy { it.yearMonth }
 }
