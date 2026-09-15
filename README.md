@@ -1,836 +1,612 @@
-package com.clientledger.core.service.summary
+package com.clientledger.core.repository.client
 
-import com.clientledger.core.domain.snapshot.ClientBalanceSnapshot
-import com.clientledger.core.domain.summary.*
-import com.clientledger.core.repository.client.ClientRepository
-import com.clientledger.core.repository.order.FirestoreOrderRepository
-import com.clientledger.core.repository.payment.FirestorePaymentRepository
-import com.clientledger.core.repository.snapshot.SnapshotRepository
+import com.clientledger.core.domain.client.Address
+import com.clientledger.core.domain.client.Client
+import com.google.cloud.firestore.DocumentSnapshot
 import com.google.cloud.firestore.Firestore
-import org.springframework.stereotype.Service
+import com.google.cloud.firestore.Transaction
+import org.springframework.stereotype.Repository
 import java.time.Instant
-import java.time.YearMonth
-import kotlin.math.abs
+import java.util.Date
 
-@Service
-class GlobalSummaryService(
-    private val clientRepository: ClientRepository,
-    private val snapshotRepository: SnapshotRepository,
-    private val db: Firestore,
-    private val orderRepository: FirestoreOrderRepository,
-    private val paymentRepository: FirestorePaymentRepository
-) {
+@Repository
+class FirestoreClientRepository(
+    private val db: Firestore
+) : ClientRepository {
 
-    /**
-     * Recalculate and store the transaction-based global summary.
-     *
-     * Source of truth:
-     * Client Balance Snapshots.
-     *
-     * IMPORTANT:
-     * initialOpeningBalance is NOT added here.
-     *
-     * Snapshot closingBalance already contains the
-     * effective transaction-based balance for the month.
-     */
-    fun recomputeGlobalSummaryForMonth(
-        yearMonth: YearMonth
+    private val collection = db.collection("clients")
+
+    private fun mapDocToClient(doc: DocumentSnapshot): Client {
+        val addressMap = doc.get("address") as? Map<String, Any?>
+        val address = Address(
+            line1 = addressMap?.get("line1") as? String ?: "",
+            line2 = addressMap?.get("line2") as? String,
+            city = addressMap?.get("city") as? String ?: "",
+            state = addressMap?.get("state") as? String ?: "",
+            pincode = addressMap?.get("pincode") as? String ?: "",
+            country = addressMap?.get("country") as? String ?: "India"
+        )
+
+        return Client(
+            id = doc.getString("id") ?: doc.id,
+            name = doc.getString("name") ?: "",
+            phone = doc.getString("phone") ?: "",
+            email = doc.getString("email") ?: "",
+            initialOpeningBalance = doc.getLong("initialOpeningBalance") ?: 0L,
+            lastClosingBalance = doc.getLong("lastClosingBalance") ?: 0L,
+            gstNumber = doc.getString("gstNumber") ?: "",
+            address = address,
+            createdAt = doc.getDate("createdAt")?.toInstant() ?: Instant.now(),
+            updatedAt = doc.getDate("updatedAt")?.toInstant() ?: Instant.now()
+        )
+    }
+
+    private fun clientToMap(client: Client): Map<String, Any?> {
+        return mapOf(
+            "id" to client.id,
+            "name" to client.name,
+            "phone" to client.phone,
+            "email" to client.email,
+            "initialOpeningBalance" to client.initialOpeningBalance,
+            "lastClosingBalance" to client.lastClosingBalance,
+            "gstNumber" to client.gstNumber,
+            "address" to mapOf(
+                "line1" to client.address.line1,
+                "line2" to client.address.line2,
+                "city" to client.address.city,
+                "state" to client.address.state,
+                "pincode" to client.address.pincode,
+                "country" to client.address.country
+            ),
+            "createdAt" to Date.from(client.createdAt),
+            "updatedAt" to Date.from(client.updatedAt)
+        )
+    }
+
+    override fun save(client: Client): Client {
+        val docRef = collection.document(client.id)
+        val existingDoc = docRef.get().get()
+
+        // 🔥 Backend Intelligence: Check if order already exists
+        val finalCreatedAt = if (existingDoc.exists()) {
+            // Safely read createdAt as a Date/Timestamp, or fallback to Number/default
+            val existingDate = existingDoc.getDate("createdAt")
+            if (existingDate != null) {
+                existingDate.toInstant()
+            } else {
+                val rawNumber = existingDoc.get("createdAt") as? Number
+                if (rawNumber != null) {
+                    Instant.ofEpochMilli(rawNumber.toLong())
+                } else {
+                    client.createdAt
+                }
+            }
+        } else {
+            // Agar naya order hai, toh current time do
+            client.createdAt
+        }
+
+
+        // Updated client object with secured timestamps
+        val securedClient = client.copy(
+            createdAt = finalCreatedAt,
+            updatedAt = Instant.now() // Update karte waqt updatedAt hamesha naya ho jayega
+        )
+
+        // Save to Firestore
+        docRef.set(clientToMap(securedClient)).get()
+        return securedClient
+    }
+
+    override fun findById(id: String): Client? {
+        val documentSnapshot = collection.document(id).get().get()
+        return if (documentSnapshot.exists()) {
+            mapDocToClient(documentSnapshot)
+        } else null
+    }
+
+    override fun findAll(): List<Client> {
+        val querySnapshot = collection.get().get()
+        return querySnapshot.documents.map { mapDocToClient(it) }
+    }
+
+    override fun deleteById(id: String) {
+        collection.document(id).delete().get()
+    }
+
+    override fun findById(
+        transaction: Transaction,
+        clientId: String
+    ): Client? {
+
+        val docRef = collection.document(clientId)
+
+        val documentSnapshot = transaction.get(docRef).get()
+
+        return if (documentSnapshot.exists()) {
+            mapDocToClient(documentSnapshot)
+        } else {
+            null
+        }
+    }
+
+    override fun save(
+        transaction: Transaction,
+        client: Client,
+        existingClient: Client?
     ) {
 
-        val clients =
-            clientRepository.findAll()
+        val finalCreatedAt =
+            existingClient?.createdAt
+                ?: client.createdAt
 
-        var totalOrdersCount = 0L
-        var totalInvoiceAmount = 0L
-        var totalGstAmount = 0L
-        var totalInvoiceAmountWithGst = 0L
-        var totalExpenses = 0L
-        var totalPayments = 0L
-        var totalReceivable = 0L
-        var totalAdvance = 0L
-        var totalDiscount = 0L
-
-        clients.forEach { client ->
-
-            val snapshot =
-                getEffectiveSnapshotForMonth(
-                    clientId = client.id,
-                    yearMonth = yearMonth
-                )
-
-            totalOrdersCount +=
-                snapshot.totalOrdersCount.toLong()
-
-            totalInvoiceAmount +=
-                snapshot.totalInvoiceAmount
-
-            totalGstAmount +=
-                snapshot.totalGstAmounts
-
-            totalInvoiceAmountWithGst +=
-                snapshot.totalInvoiceAmountWithGst
-
-            totalExpenses +=
-                snapshot.totalExpenses
-
-            totalPayments +=
-                snapshot.totalPayments
-
-            totalDiscount +=
-                snapshot.totalDiscount
-
-            when {
-                snapshot.closingBalance > 0L -> {
-                    totalReceivable +=
-                        snapshot.closingBalance
-                }
-
-                snapshot.closingBalance < 0L -> {
-                    totalAdvance +=
-                        abs(snapshot.closingBalance)
-                }
-            }
-        }
-
-        val netProfit =
-            totalInvoiceAmount - totalExpenses
-
-        val cashFlow =
-            totalPayments - totalExpenses
-
-        val globalSummary =
-            GlobalSummary(
-                yearMonth = yearMonth.toString(),
-
-                totalOrdersCount =
-                totalOrdersCount.toInt(),
-
-                totalInvoiceAmount =
-                totalInvoiceAmount,
-
-                totalGstAmount =
-                totalGstAmount,
-
-                totalInvoiceAmountWithGst =
-                totalInvoiceAmountWithGst,
-
-                totalExpenses =
-                totalExpenses,
-
-                totalPayments =
-                totalPayments,
-
-                totalReceivableAmount =
-                totalReceivable,
-
-                totalAdvanceAmount =
-                totalAdvance,
-
-                netProfit =
-                netProfit,
-
-                cashFlow =
-                cashFlow,
-
-                totalDiscount =
-                totalDiscount,
-
-                updatedAt =
-                Instant.now()
+        val securedClient =
+            client.copy(
+                createdAt = finalCreatedAt,
+                updatedAt = Instant.now()
             )
 
         val docRef =
-            db.collection("global_summaries")
-                .document(yearMonth.toString())
-
-        db.runTransaction { transaction ->
-            transaction.set(
-                docRef,
-                globalSummary
-            )
-            null
-        }.get()
-    }
-
-    /**
-     * Returns the effective snapshot for a particular client/month.
-     *
-     * If an exact snapshot exists, it is returned.
-     *
-     * If the exact month does not exist, the latest previous
-     * snapshot is used and its closing balance is carried forward.
-     *
-     * IMPORTANT:
-     * initialOpeningBalance is NOT added here.
-     */
-    private fun getEffectiveSnapshotForMonth(
-        clientId: String,
-        yearMonth: YearMonth
-    ): ClientBalanceSnapshot {
-
-        /*
-         * 1. Exact month snapshot.
-         */
-        val exactSnapshot =
-            snapshotRepository.getSnapshot(
-                clientId = clientId,
-                yearMonth = yearMonth
-            )
-
-        if (exactSnapshot != null) {
-            return exactSnapshot
-        }
-
-        /*
-         * 2. Find latest snapshot before requested month.
-         */
-        val previousSnapshot =
-            snapshotRepository.findLatestSnapshotBefore(
-                clientId = clientId,
-                yearMonth = yearMonth
-            )
-
-        val balance =
-            previousSnapshot?.closingBalance ?: 0L
-
-        /*
-         * 3. Create a virtual snapshot.
-         *
-         * This is only used for calculation.
-         * It is NOT written to Firestore.
-         */
-        return ClientBalanceSnapshot(
-            clientId = clientId,
-            yearMonth = yearMonth,
-            openingBalance = balance,
-            totalOrdersCount = 0,
-            totalInvoiceAmount = 0L,
-            totalInvoiceAmountWithGst = 0L,
-            totalPayments = 0L,
-            totalExpenses = 0L,
-            closingBalance = balance,
-            totalGstAmounts = 0L,
-            totalDiscount = 0L,
-            updatedAt = Instant.now()
-        )
-    }
-
-    /**
-     * Returns the stored global summary for a month.
-     *
-     * IMPORTANT:
-     * This method reads ONLY from global_summaries.
-     *
-     * ClientMonthlyReporting is NOT used here.
-     */
-    fun getGlobalSummaryForMonth(
-        yearMonth: YearMonth
-    ): Map<String, Any?> {
-
-        val docRef =
-            db.collection("global_summaries")
-                .document(yearMonth.toString())
-
-        val snapshot =
-            docRef.get().get()
-
-        if (!snapshot.exists()) {
-            return emptyMap()
-        }
-
-        return snapshot.data ?: emptyMap()
-    }
-
-    /**
-     * Get complete yearly global summary.
-     *
-     * Monthly transaction metrics are summed.
-     *
-     * Receivable/Advance is taken only from the
-     * final month of the requested year.
-     */
-    fun getGlobalSummaryForYear(
-        year: Int
-    ): GlobalSummary {
-
-        val currentYear =
-            YearMonth.now().year
-
-        val currentMonthValue =
-            YearMonth.now().monthValue
-
-        val lastMonth =
-            if (year == currentYear) {
-                currentMonthValue
-            } else {
-                12
-            }
-
-        var totalOrdersCount = 0L
-        var totalInvoiceAmount = 0L
-        var totalGstAmount = 0L
-        var totalInvoiceAmountWithGst = 0L
-        var totalExpenses = 0L
-        var totalPayments = 0L
-        var totalDiscount = 0L
-        var netProfit = 0L
-        var cashFlow = 0L
-
-        for (month in 1..lastMonth) {
-
-            val yearMonth =
-                YearMonth.of(year, month)
-
-            val summary =
-                getGlobalSummaryForMonth(yearMonth)
-
-            totalOrdersCount +=
-                (summary["totalOrdersCount"] as? Number)
-                    ?.toLong() ?: 0L
-
-            totalInvoiceAmount +=
-                (summary["totalInvoiceAmount"] as? Number)
-                    ?.toLong() ?: 0L
-
-            totalGstAmount +=
-                (summary["totalGstAmount"] as? Number)
-                    ?.toLong() ?: 0L
-
-            totalInvoiceAmountWithGst +=
-                (summary["totalInvoiceAmountWithGst"] as? Number)
-                    ?.toLong() ?: 0L
-
-            totalExpenses +=
-                (summary["totalExpenses"] as? Number)
-                    ?.toLong() ?: 0L
-
-            totalPayments +=
-                (summary["totalPayments"] as? Number)
-                    ?.toLong() ?: 0L
-
-            totalDiscount +=
-                (summary["totalDiscount"] as? Number)
-                    ?.toLong() ?: 0L
-
-            netProfit +=
-                (summary["netProfit"] as? Number)
-                    ?.toLong() ?: 0L
-
-            cashFlow +=
-                (summary["cashFlow"] as? Number)
-                    ?.toLong() ?: 0L
-        }
-
-        /*
-         * Receivable/Advance is a point-in-time balance.
-         *
-         * Therefore do NOT sum it across months.
-         */
-        val finalMonth =
-            YearMonth.of(year, lastMonth)
-
-        val finalSummary =
-            getGlobalSummaryForMonth(finalMonth)
-
-        val totalReceivableAmount =
-            (finalSummary["totalReceivableAmount"] as? Number)
-                ?.toLong() ?: 0L
-
-        val totalAdvanceAmount =
-            (finalSummary["totalAdvanceAmount"] as? Number)
-                ?.toLong() ?: 0L
-
-        return GlobalSummary(
-            yearMonth = year.toString(),
-
-            totalOrdersCount =
-            totalOrdersCount.toInt(),
-
-            totalInvoiceAmount =
-            totalInvoiceAmount,
-
-            totalGstAmount =
-            totalGstAmount,
-
-            totalInvoiceAmountWithGst =
-            totalInvoiceAmountWithGst,
-
-            totalExpenses =
-            totalExpenses,
-
-            totalPayments =
-            totalPayments,
-
-            totalReceivableAmount =
-            totalReceivableAmount,
-
-            totalAdvanceAmount =
-            totalAdvanceAmount,
-
-            totalDiscount =
-            totalDiscount,
-
-            netProfit =
-            netProfit,
-
-            cashFlow =
-            cashFlow
-        )
-    }
-
-    /**
-     * Invoice drilldown.
-     */
-    fun getInvoiceDrillDown(
-        year: Int,
-        month: Int?
-    ): InvoiceDrillDownResponse {
-
-        val allClients =
-            clientRepository
-                .findAll()
-                .associateBy { it.id }
-
-        val orders =
-            if (month != null) {
-                orderRepository.findAllForMonth(year, month)
-            } else {
-                orderRepository.findAllForYear(year)
-            }
-
-        val items =
-            orders.map { order ->
-
-                val client =
-                    allClients[order.clientId]
-
-                val totalWithGst =
-                    order.totalInvoiceAmount
-
-                val gst =
-                    order.totalGstAmount
-
-                val withoutGst =
-                    totalWithGst - gst
-
-                InvoiceDrillDownDto(
-                    orderId = order.id,
-                    clientId = order.clientId,
-                    clientName = client?.name ?: "Unknown Client",
-                    orderDate = order.orderDate,
-                    invoiceAmountWithoutGst = withoutGst,
-                    gstAmount = gst,
-                    totalAmountWithGst = totalWithGst
-                )
-            }
-
-        return InvoiceDrillDownResponse(
-            totalCount = items.size,
-            totalInvoiceAmountWithOutGst =
-            items.sumOf { it.invoiceAmountWithoutGst },
-            totalInvoiceAmountWithGst =
-            items.sumOf { it.totalAmountWithGst },
-            totalGstAmount =
-            items.sumOf { it.gstAmount },
-            items = items
-        )
-    }
-
-    /**
-     * Expense drilldown.
-     */
-    fun getExpenseDrillDown(
-        year: Int,
-        month: Int?
-    ): BalanceDrillDownResponse<ExpenseDrillDownDto> {
-
-        val allClients =
-            clientRepository
-                .findAll()
-                .associateBy { it.id }
-
-        val orders =
-            if (month != null) {
-                orderRepository.findAllForMonth(year, month)
-            } else {
-                orderRepository.findAllForYear(year)
-            }
-
-        val expenseOrders =
-            orders.filter { order ->
-                order.totalExpense > 0
-            }
-
-        val items =
-            expenseOrders.map { order ->
-
-                val client =
-                    allClients[order.clientId]
-
-                ExpenseDrillDownDto(
-                    orderId = order.id,
-                    clientId = order.clientId,
-                    clientName = client?.name ?: "Unknown Client",
-                    orderDate = order.orderDate,
-                    totalExpense = order.totalExpense
-                )
-            }
-
-        return BalanceDrillDownResponse(
-            totalCount = items.size,
-            totalAmount =
-            items.sumOf { it.totalExpense },
-            items = items
-        )
-    }
-
-    /**
-     * Payment drilldown.
-     */
-    fun getPaymentDrillDown(
-        year: Int,
-        month: Int?
-    ): BalanceDrillDownResponse<PaymentDrillDownDto> {
-
-        val allClients =
-            clientRepository
-                .findAll()
-                .associateBy { it.id }
-
-        val payments =
-            if (month != null) {
-                paymentRepository.findAllForMonth(year, month)
-            } else {
-                paymentRepository.findAllForYear(year)
-            }
-
-        val items =
-            payments.map { payment ->
-
-                val client =
-                    allClients[payment.clientId]
-
-                PaymentDrillDownDto(
-                    paymentId = payment.id,
-                    clientId = payment.clientId,
-                    clientName = client?.name ?: "Unknown Client",
-                    paymentDate = payment.paymentDate,
-                    amount = payment.amount,
-                    paymentType = payment.paymentMode
-                )
-            }
-
-        return BalanceDrillDownResponse(
-            totalCount = items.size,
-            totalAmount =
-            items.sumOf { it.amount },
-            items = items
-        )
-    }
-
-    /**
-     * Receivable drilldown.
-     *
-     * Uses Client Balance Snapshots only.
-     *
-     * month != null:
-     * requested month
-     *
-     * month == null:
-     * December
-     */
-    fun getReceivableDrillDown(
-        year: Int,
-        month: Int?
-    ): BalanceDrillDownResponse<BalanceDrillDownDto> {
-
-        val targetYearMonth =
-            if (month != null) {
-                YearMonth.of(year, month)
-            } else {
-                YearMonth.of(year, 12)
-            }
-
-        val clients =
-            clientRepository.findAll()
-
-        val items =
-            clients.mapNotNull { client ->
-
-                val snapshot =
-                    getEffectiveSnapshotForMonth(
-                        clientId = client.id,
-                        yearMonth = targetYearMonth
-                    )
-
-                if (snapshot.closingBalance > 0L) {
-                    BalanceDrillDownDto(
-                        clientId = client.id,
-                        clientName = client.name,
-                        balanceAmount = snapshot.closingBalance
-                    )
-                } else {
-                    null
-                }
-            }
-
-        return BalanceDrillDownResponse(
-            totalCount = items.size,
-            totalAmount =
-            items.sumOf { it.balanceAmount },
-            items = items
-        )
-    }
-
-    /**
-     * Advance drilldown.
-     *
-     * Uses Client Balance Snapshots only.
-     */
-    fun getAdvanceDrillDown(
-        year: Int,
-        month: Int?
-    ): BalanceDrillDownResponse<BalanceDrillDownDto> {
-
-        val targetYearMonth =
-            if (month != null) {
-                YearMonth.of(year, month)
-            } else {
-                YearMonth.of(year, 12)
-            }
-
-        val clients =
-            clientRepository.findAll()
-
-        val items =
-            clients.mapNotNull { client ->
-
-                val snapshot =
-                    getEffectiveSnapshotForMonth(
-                        clientId = client.id,
-                        yearMonth = targetYearMonth
-                    )
-
-                if (snapshot.closingBalance < 0L) {
-                    BalanceDrillDownDto(
-                        clientId = client.id,
-                        clientName = client.name,
-                        balanceAmount =
-                        abs(snapshot.closingBalance)
-                    )
-                } else {
-                    null
-                }
-            }
-
-        return BalanceDrillDownResponse(
-            totalCount = items.size,
-            totalAmount =
-            items.sumOf { it.balanceAmount },
-            items = items
-        )
-    }
-
-    /**
-     * Discount drilldown.
-     *
-     * Uses Client Balance Snapshots only.
-     */
-    fun getDiscountDrillDown(
-        year: Int,
-        month: Int?
-    ): List<DiscountDrillDownDto> {
-
-        val targetYearMonth =
-            if (month != null) {
-                YearMonth.of(year, month)
-            } else {
-                YearMonth.of(year, 12)
-            }
-
-        val clients =
-            clientRepository.findAll()
-
-        return clients.mapNotNull { client ->
-
-            val snapshot =
-                getEffectiveSnapshotForMonth(
-                    clientId = client.id,
-                    yearMonth = targetYearMonth
-                )
-
-            if (snapshot.totalDiscount != 0L) {
-                DiscountDrillDownDto(
-                    clientId = client.id,
-                    clientName = client.name,
-                    totalDiscount = snapshot.totalDiscount
-                )
-            } else {
-                null
-            }
-        }
-    }
-
-    /**
-     * Calculate Global Summary using old/new snapshot delta.
-     *
-     * This method is used by the transactional ledger update flow.
-     *
-     * ClientMonthlyReporting is NOT involved.
-     */
-    fun calculateGlobalSummaryDelta(
-        yearMonth: YearMonth,
-        existingData: Map<String, Any?>,
-        oldSnapshot: ClientBalanceSnapshot?,
-        newSnapshot: ClientBalanceSnapshot
-    ): GlobalSummary {
-
-        val oldOrdersCount =
-            oldSnapshot?.totalOrdersCount ?: 0
-
-        val oldInvoiceAmount =
-            oldSnapshot?.totalInvoiceAmount ?: 0L
-
-        val oldGstAmount =
-            oldSnapshot?.totalGstAmounts ?: 0L
-
-        val oldInvoiceAmountWithGst =
-            oldSnapshot?.totalInvoiceAmountWithGst ?: 0L
-
-        val oldExpenses =
-            oldSnapshot?.totalExpenses ?: 0L
-
-        val oldPayments =
-            oldSnapshot?.totalPayments ?: 0L
-
-        val oldDiscount =
-            oldSnapshot?.totalDiscount ?: 0L
-
-        val oldClosingBalance =
-            oldSnapshot?.closingBalance ?: 0L
-
-        val newOrdersCount =
-            newSnapshot.totalOrdersCount
-
-        val newInvoiceAmount =
-            newSnapshot.totalInvoiceAmount
-
-        val newGstAmount =
-            newSnapshot.totalGstAmounts
-
-        val newInvoiceAmountWithGst =
-            newSnapshot.totalInvoiceAmountWithGst
-
-        val newExpenses =
-            newSnapshot.totalExpenses
-
-        val newPayments =
-            newSnapshot.totalPayments
-
-        val newDiscount =
-            newSnapshot.totalDiscount
-
-        val newClosingBalance =
-            newSnapshot.closingBalance
-
-        val totalOrdersCount =
-            ((existingData["totalOrdersCount"] as? Number)?.toLong() ?: 0L) -
-                    oldOrdersCount +
-                    newOrdersCount
-
-        val totalInvoiceAmount =
-            ((existingData["totalInvoiceAmount"] as? Number)?.toLong() ?: 0L) -
-                    oldInvoiceAmount +
-                    newInvoiceAmount
-
-        val totalGstAmount =
-            ((existingData["totalGstAmount"] as? Number)?.toLong() ?: 0L) -
-                    oldGstAmount +
-                    newGstAmount
-
-        val totalInvoiceAmountWithGst =
-            ((existingData["totalInvoiceAmountWithGst"] as? Number)?.toLong() ?: 0L) -
-                    oldInvoiceAmountWithGst +
-                    newInvoiceAmountWithGst
-
-        val totalExpenses =
-            ((existingData["totalExpenses"] as? Number)?.toLong() ?: 0L) -
-                    oldExpenses +
-                    newExpenses
-
-        val totalPayments =
-            ((existingData["totalPayments"] as? Number)?.toLong() ?: 0L) -
-                    oldPayments +
-                    newPayments
-
-        val totalDiscount =
-            ((existingData["totalDiscount"] as? Number)?.toLong() ?: 0L) -
-                    oldDiscount +
-                    newDiscount
-
-        var totalReceivable =
-            (existingData["totalReceivableAmount"] as? Number)?.toLong()
-                ?: 0L
-
-        var totalAdvance =
-            (existingData["totalAdvanceAmount"] as? Number)?.toLong()
-                ?: 0L
-
-        when {
-            oldClosingBalance > 0L ->
-                totalReceivable -= oldClosingBalance
-
-            oldClosingBalance < 0L ->
-                totalAdvance -= abs(oldClosingBalance)
-        }
-
-        when {
-            newClosingBalance > 0L ->
-                totalReceivable += newClosingBalance
-
-            newClosingBalance < 0L ->
-                totalAdvance += abs(newClosingBalance)
-        }
-
-        return GlobalSummary(
-            yearMonth = yearMonth.toString(),
-
-            totalOrdersCount =
-            totalOrdersCount.toInt(),
-
-            totalInvoiceAmount =
-            totalInvoiceAmount,
-
-            totalGstAmount =
-            totalGstAmount,
-
-            totalInvoiceAmountWithGst =
-            totalInvoiceAmountWithGst,
-
-            totalExpenses =
-            totalExpenses,
-
-            totalPayments =
-            totalPayments,
-
-            totalReceivableAmount =
-            totalReceivable,
-
-            totalAdvanceAmount =
-            totalAdvance,
-
-            netProfit =
-            totalInvoiceAmount - totalExpenses,
-
-            cashFlow =
-            totalPayments - totalExpenses,
-
-            totalDiscount =
-            totalDiscount,
-
-            updatedAt =
-            Instant.now()
+            collection.document(client.id)
+
+        transaction.set(
+            docRef,
+            clientToMap(securedClient)
         )
     }
 }
 
+
+
+package com.clientledger.core.repository.snapshot
+
+import com.clientledger.core.domain.snapshot.ClientBalanceSnapshot
+import com.clientledger.core.utils.CommonUtils.MONTHS_TO_CHECK_IN_LEDGER_ENGINE
+import com.google.cloud.firestore.DocumentSnapshot
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.Query
+import com.google.cloud.firestore.Transaction
+import org.springframework.stereotype.Repository
+import java.time.Instant
+import java.time.YearMonth
+import java.time.temporal.ChronoUnit
+
+@Repository
+class FirestoreSnapshotRepository(
+    private val db: Firestore
+) : SnapshotRepository {
+
+
+    override fun getInitialClientOpeningBalance(clientId: String): Long {
+        val doc = db.collection("clients").document(clientId).get().get()
+        if (!doc.exists()) return 0L
+        return doc.getLong("initialOpeningBalance") ?: 0L
+    }
+
+    override fun getAllSnapshotsForClient(clientId: String): List<ClientBalanceSnapshot> {
+        val snapshotsList = mutableListOf<ClientBalanceSnapshot>()
+        val currentYearMonth = YearMonth.now()
+
+        val cutoffYearMonth = currentYearMonth.minusMonths(MONTHS_TO_CHECK_IN_LEDGER_ENGINE)
+//        println("CLIENT ID = $clientId")
+//        println("CURRENT MONTH = $currentYearMonth")
+//        println("CUTOFF MONTH = $cutoffYearMonth")
+        try {
+
+            val snapshotsRef = db.collection("clients")
+                .document(clientId)
+                .collection("snapshots")
+
+            // Get all years covered by the date range
+            val startYear = cutoffYearMonth.year
+            val endYear = currentYearMonth.year
+
+            for (year in startYear..endYear) {
+                val monthsRef = snapshotsRef
+                    .document(year.toString())
+                    .collection("months")
+
+                println("READING PATH = ${monthsRef.path}")
+                val monthDocs = monthsRef.get().get()
+                println("YEAR $year MONTHS = " + monthDocs.documents.map { it.id })
+
+                for (monthDoc in monthDocs.documents) {
+
+                    try {
+                        val yearMonth = YearMonth.parse(monthDoc.id)
+
+                        // Apply exact 24-month range filter
+                        if (
+                            !yearMonth.isBefore(cutoffYearMonth) &&
+                            !yearMonth.isAfter(currentYearMonth)
+                        ) {
+
+                            val snapshot =
+                                ClientBalanceSnapshot(
+                                    clientId = clientId,
+                                    yearMonth = yearMonth,
+                                    openingBalance = monthDoc.getLong("openingBalance") ?: 0L,
+                                    totalOrdersCount = monthDoc.getLong("totalOrdersCount")?.toInt() ?: 0,
+                                    totalInvoiceAmount = monthDoc.getLong("totalInvoiceAmount") ?: 0L,
+                                    totalInvoiceAmountWithGst = monthDoc.getLong("totalInvoiceAmountWithGst") ?: 0L,
+                                    totalPayments = monthDoc.getLong("totalPayments") ?: 0L,
+                                    totalExpenses = monthDoc.getLong("totalExpenses") ?: 0L,
+                                    closingBalance = monthDoc.getLong("closingBalance") ?: 0L,
+                                    totalGstAmounts = monthDoc.getLong("totalGstAmounts") ?: 0L,
+                                    totalDiscount = monthDoc.getLong("totalDiscount") ?: 0L,
+                                    updatedAt = monthDoc.getDate("updatedAt")?.toInstant() ?: Instant.now()
+                                )
+
+                            snapshotsList.add(snapshot)
+                        }
+
+                    } catch (e: Exception) {
+                        println("Error parsing month ${monthDoc.id}: " + e.message)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            println("Error loading snapshots for client=$clientId: " + e.message)
+            e.printStackTrace()
+        }
+
+        return snapshotsList.sortedBy { it.yearMonth }
+    }
+
+    override fun getSnapshot(clientId: String, yearMonth: YearMonth): ClientBalanceSnapshot? {
+
+        try {
+            val year = yearMonth.year.toString()
+            val monthsRef = db.collection("clients")
+                .document(clientId)
+                .collection("snapshots")
+                .document(year)
+                .collection("months")
+
+            println("CLIENT ID = $clientId")
+            println("REQUESTED YEAR-MONTH = $yearMonth")
+            println("READING PATH = ${monthsRef.path}")
+            println("DOCUMENT ID = ${yearMonth}")
+
+            val monthDoc = monthsRef.document(yearMonth.toString()).get().get()
+            println("SNAPSHOT EXISTS = ${monthDoc.exists()}")
+            println("SNAPSHOT DATA = ${monthDoc.data}")
+            if (!monthDoc.exists()) {
+                return null
+            }
+
+            return ClientBalanceSnapshot(
+                clientId = clientId,
+                yearMonth = YearMonth.parse(monthDoc.id),
+                openingBalance = monthDoc.getLong("openingBalance") ?: 0L,
+                totalOrdersCount = monthDoc.getLong("totalOrdersCount")?.toInt() ?: 0,
+                totalInvoiceAmount = monthDoc.getLong("totalInvoiceAmount") ?: 0L,
+                totalInvoiceAmountWithGst = monthDoc.getLong("totalInvoiceAmountWithGst") ?: 0L,
+                totalPayments = monthDoc.getLong("totalPayments") ?: 0L,
+                totalExpenses = monthDoc.getLong("totalExpenses") ?: 0L,
+                closingBalance = monthDoc.getLong("closingBalance") ?: 0L,
+                totalGstAmounts = monthDoc.getLong("totalGstAmounts") ?: 0L,
+                totalDiscount = monthDoc.getLong("totalDiscount") ?: 0L,
+                updatedAt = monthDoc.getDate("updatedAt")?.toInstant() ?: Instant.now()
+            )
+
+        } catch (e: Exception) {
+            println("Error loading snapshot " + "client=$clientId, yearMonth=$yearMonth: ${e.message}")
+            e.printStackTrace()
+            return null
+        }
+    }
+
+
+    override fun saveSnapshot(snapshot: ClientBalanceSnapshot) {
+        val year = snapshot.yearMonth.year.toString()
+        val docRef = db.collection("clients").document(snapshot.clientId)
+            .collection("snapshots").document(year)
+            .collection("months").document(snapshot.yearMonth.toString())
+
+        val data = mapOf(
+            "clientId" to snapshot.clientId,
+            "yearMonth" to snapshot.yearMonth.toString(),
+            "openingBalance" to snapshot.openingBalance,
+            "totalOrdersCount" to snapshot.totalOrdersCount,
+            "totalInvoiceAmount" to snapshot.totalInvoiceAmount,
+            "totalInvoiceAmountWithGst" to snapshot.totalInvoiceAmountWithGst,
+            "totalPayments" to snapshot.totalPayments,
+            "totalExpenses" to snapshot.totalExpenses,
+            "closingBalance" to snapshot.closingBalance,
+            "totalGstAmounts" to snapshot.totalGstAmounts,
+            "totalDiscount" to snapshot.totalDiscount,
+            "updatedAt" to java.util.Date.from(snapshot.updatedAt)
+        )
+
+        docRef.set(data).get()
+    }
+
+    override fun getSnapshot(transaction: Transaction, clientId: String, yearMonth: YearMonth): ClientBalanceSnapshot? {
+        val docRef = db.collection("clients")
+            .document(clientId)
+            .collection("snapshots")
+            .document(yearMonth.year.toString())
+            .collection("months")
+            .document(yearMonth.toString())
+        val document = transaction.get(docRef).get()
+        if (!document.exists()) {
+            return null
+        }
+        return ClientBalanceSnapshot(
+            clientId = clientId,
+            yearMonth = YearMonth.parse(document.id),
+            openingBalance = document.getLong("openingBalance") ?: 0L,
+            totalOrdersCount = document.getLong("totalOrdersCount")?.toInt() ?: 0,
+            totalInvoiceAmount = document.getLong("totalInvoiceAmount") ?: 0L,
+            totalInvoiceAmountWithGst = document.getLong("totalInvoiceAmountWithGst") ?: 0L,
+            totalPayments = document.getLong("totalPayments") ?: 0L,
+            totalExpenses = document.getLong("totalExpenses") ?: 0L,
+            closingBalance = document.getLong("closingBalance") ?: 0L,
+            totalGstAmounts = document.getLong("totalGstAmounts") ?: 0L,
+            totalDiscount = document.getLong("totalDiscount") ?: 0L,
+            updatedAt = document.getDate("updatedAt")?.toInstant() ?: Instant.now()
+        )
+    }
+
+    override fun saveSnapshot(
+        transaction: Transaction,
+        snapshot: ClientBalanceSnapshot
+    ) {
+
+        val docRef = db.collection("clients")
+            .document(snapshot.clientId)
+            .collection("snapshots")
+            .document(snapshot.yearMonth.year.toString())
+            .collection("months")
+            .document(snapshot.yearMonth.toString())
+
+        val data = mapOf(
+            "clientId" to snapshot.clientId,
+            "yearMonth" to snapshot.yearMonth.toString(),
+            "openingBalance" to snapshot.openingBalance,
+            "totalOrdersCount" to snapshot.totalOrdersCount,
+            "totalInvoiceAmount" to snapshot.totalInvoiceAmount,
+            "totalInvoiceAmountWithGst" to snapshot.totalInvoiceAmountWithGst,
+            "totalPayments" to snapshot.totalPayments,
+            "totalExpenses" to snapshot.totalExpenses,
+            "closingBalance" to snapshot.closingBalance,
+            "totalGstAmounts" to snapshot.totalGstAmounts,
+            "totalDiscount" to snapshot.totalDiscount,
+            "updatedAt" to java.util.Date.from(snapshot.updatedAt)
+        )
+
+        transaction.set(docRef, data)
+    }
+
+    override fun getAllSnapshotsForClient(
+        transaction: Transaction,
+        clientId: String
+    ): List<ClientBalanceSnapshot> {
+
+        val query = db.collectionGroup("months")
+            .whereEqualTo("clientId", clientId)
+
+        return transaction.get(query).get().documents.map { document ->
+
+            ClientBalanceSnapshot(
+                clientId = clientId,
+                yearMonth = YearMonth.parse(
+                    document.getString("yearMonth")
+                        ?: document.id
+                ),
+                openingBalance = document.getLong("openingBalance") ?: 0L,
+                totalOrdersCount =
+                document.getLong("totalOrdersCount")?.toInt() ?: 0,
+                totalInvoiceAmount =
+                document.getLong("totalInvoiceAmount") ?: 0L,
+                totalInvoiceAmountWithGst =
+                document.getLong("totalInvoiceAmountWithGst") ?: 0L,
+                totalPayments =
+                document.getLong("totalPayments") ?: 0L,
+                totalExpenses =
+                document.getLong("totalExpenses") ?: 0L,
+                closingBalance =
+                document.getLong("closingBalance") ?: 0L,
+                totalGstAmounts =
+                document.getLong("totalGstAmounts") ?: 0L,
+                totalDiscount =
+                document.getLong("totalDiscount") ?: 0L,
+                updatedAt =
+                document.getDate("updatedAt")?.toInstant()
+                    ?: Instant.now()
+            )
+        }.sortedBy { it.yearMonth }
+    }
+
+    override fun findLatestSnapshotForClient(transaction: Transaction, clientId: String): ClientBalanceSnapshot? {
+        val query = db.collectionGroup("months")
+                .whereEqualTo("clientId", clientId)
+                .orderBy("yearMonth", Query.Direction.DESCENDING)
+                .limit(1)
+
+        val document = transaction.get(query)
+                .get()
+                .documents
+                .firstOrNull()
+                ?: return null
+
+        return ClientBalanceSnapshot(
+            clientId = clientId,
+            yearMonth = YearMonth.parse(document.getString("yearMonth") ?: document.id),
+            openingBalance = document.getLong("openingBalance") ?: 0L,
+            totalOrdersCount = document.getLong("totalOrdersCount")?.toInt() ?: 0,
+            totalInvoiceAmount = document.getLong("totalInvoiceAmount") ?: 0L,
+            totalInvoiceAmountWithGst = document.getLong("totalInvoiceAmountWithGst") ?: 0L,
+            totalPayments = document.getLong("totalPayments") ?: 0L,
+            totalExpenses = document.getLong("totalExpenses") ?: 0L,
+            closingBalance = document.getLong("closingBalance") ?: 0L,
+            totalGstAmounts = document.getLong("totalGstAmounts") ?: 0L,
+            totalDiscount = document.getLong("totalDiscount") ?: 0L,
+            updatedAt = document.getDate("updatedAt")?.toInstant() ?: Instant.now()
+        )
+    }
+
+    override fun getSnapshotsForClientInRange(transaction: Transaction,
+        clientId: String,
+        startMonth: YearMonth,
+        endMonth: YearMonth
+    ): List<ClientBalanceSnapshot> {
+        val query =
+            db.collectionGroup("months")
+                .whereEqualTo("clientId", clientId)
+                .whereGreaterThanOrEqualTo(
+                    "yearMonth",
+                    startMonth.toString()
+                )
+                .whereLessThanOrEqualTo(
+                    "yearMonth",
+                    endMonth.toString()
+                )
+                .orderBy("yearMonth")
+
+        return transaction.get(query)
+            .get()
+            .documents
+            .map { document ->
+                ClientBalanceSnapshot(
+                    clientId = clientId,
+                    yearMonth = YearMonth.parse(document.getString("yearMonth") ?: document.id),
+                    openingBalance = document.getLong("openingBalance") ?: 0L,
+                    totalOrdersCount = document.getLong("totalOrdersCount")?.toInt() ?: 0,
+                    totalInvoiceAmount = document.getLong("totalInvoiceAmount") ?: 0L,
+                    totalInvoiceAmountWithGst = document.getLong("totalInvoiceAmountWithGst") ?: 0L,
+                    totalPayments = document.getLong("totalPayments") ?: 0L,
+                    totalExpenses = document.getLong("totalExpenses") ?: 0L,
+                    closingBalance = document.getLong("closingBalance") ?: 0L,
+                    totalGstAmounts = document.getLong("totalGstAmounts") ?: 0L,
+                    totalDiscount = document.getLong("totalDiscount") ?: 0L,
+                    updatedAt = document.getDate("updatedAt")?.toInstant() ?: Instant.now()
+                )
+            }
+            .sortedBy { it.yearMonth }
+    }
+
+
+    override fun getOpeningBalanceSeed(
+        transaction: Transaction,
+        clientId: String,
+        startMonth: YearMonth,
+        fallbackOpeningBalance: Long
+    ): Long {
+        // Prefer the exact month's opening balance.
+        getSnapshot(transaction, clientId, startMonth)?.let { return it.openingBalance }
+
+        val searchRadiusMonths = 12L
+        val windowStart = startMonth.minusMonths(searchRadiusMonths)
+        val windowEnd = startMonth.plusMonths(searchRadiusMonths)
+
+        val snapshotQuery = db.collectionGroup("months")
+            .whereEqualTo("clientId", clientId)
+            .whereGreaterThanOrEqualTo(
+                "yearMonth",
+                windowStart.toString()
+            )
+            .whereLessThanOrEqualTo(
+                "yearMonth",
+                windowEnd.toString()
+            )
+
+        val nearestSnapshot = transaction.get(snapshotQuery)
+            .get()
+            .documents
+            .mapNotNull { document ->
+                val yearMonthValue =
+                    document.getString("yearMonth") ?: return@mapNotNull null
+
+                val snapshotMonth = runCatching {
+                    YearMonth.parse(yearMonthValue)
+                }.getOrNull() ?: return@mapNotNull null
+
+                SnapshotCandidate(
+                    document = document,
+                    month = snapshotMonth,
+                    distance = kotlin.math.abs(
+                        ChronoUnit.MONTHS.between(
+                            startMonth,
+                            snapshotMonth
+                        )
+                    )
+                )
+            }
+            .minWithOrNull(
+                compareBy<SnapshotCandidate> { it.distance }
+                    // On equal distance, prefer the past snapshot.
+                    .thenBy { it.month.isAfter(startMonth) }
+            )
+            ?: return fallbackOpeningBalance
+
+        return if (nearestSnapshot.month.isBefore(startMonth)) {
+            nearestSnapshot.document.getLong("closingBalance")
+        } else {
+            nearestSnapshot.document.getLong("openingBalance")
+        } ?: fallbackOpeningBalance
+    }
+
+    private data class SnapshotCandidate(
+        val document: DocumentSnapshot,
+        val month: YearMonth,
+        val distance: Long
+    )
+
+
+
+    override fun findLatestSnapshotBefore(
+        clientId: String,
+        yearMonth: YearMonth
+    ): ClientBalanceSnapshot? {
+
+        val query =
+            db.collectionGroup("months")
+                .whereEqualTo("clientId", clientId)
+                .whereLessThan(
+                    "yearMonth",
+                    yearMonth.toString())
+                .orderBy(
+                    "yearMonth",
+                    Query.Direction.DESCENDING)
+                .limit(1)
+
+        val document =
+            query.get()
+                .get()
+                .documents
+                .firstOrNull()
+                ?: return null
+
+        return ClientBalanceSnapshot(
+            clientId = clientId,
+            yearMonth = YearMonth.parse(
+                document.getString("yearMonth")
+                    ?: document.id
+            ),
+            openingBalance =
+            document.getLong("openingBalance") ?: 0L,
+            totalOrdersCount =
+            document.getLong("totalOrdersCount")?.toInt() ?: 0,
+            totalInvoiceAmount =
+            document.getLong("totalInvoiceAmount") ?: 0L,
+            totalInvoiceAmountWithGst =
+            document.getLong("totalInvoiceAmountWithGst") ?: 0L,
+            totalPayments =
+            document.getLong("totalPayments") ?: 0L,
+            totalExpenses =
+            document.getLong("totalExpenses") ?: 0L,
+            closingBalance =
+            document.getLong("closingBalance") ?: 0L,
+            totalGstAmounts =
+            document.getLong("totalGstAmounts") ?: 0L,
+            totalDiscount =
+            document.getLong("totalDiscount") ?: 0L,
+            updatedAt =
+            document.getDate("updatedAt")?.toInstant()
+                ?: Instant.now()
+        )
+    }
+}
