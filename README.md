@@ -1,62 +1,80 @@
-override fun getAllSnapshotsForMonth(
+fun rebuildGlobalSummaryForMonth(
     transaction: Transaction,
     yearMonth: YearMonth
-): List<ClientBalanceSnapshot> {
+): GlobalSummary {
 
-    val query =
-        db.collectionGroup("months")
-            .whereEqualTo("yearMonth", yearMonth.toString())
+    val snapshots =
+        snapshotRepository.getAllSnapshotsForMonth(
+            transaction = transaction,
+            yearMonth = yearMonth
+        )
 
-    return transaction.get(query)
-        .get()
-        .documents
-        .map { document ->
+    var totalOrdersCount = 0L
+    var totalInvoiceAmount = 0L
+    var totalGstAmount = 0L
+    var totalInvoiceAmountWithGst = 0L
+    var totalExpenses = 0L
+    var totalPayments = 0L
+    var totalReceivable = 0L
+    var totalAdvance = 0L
+    var totalDiscount = 0L
 
-            ClientBalanceSnapshot(
-                clientId =
-                    document.getString("clientId")
-                        ?: "",
+    snapshots.forEach { snapshot ->
 
-                yearMonth =
-                    YearMonth.parse(
-                        document.getString("yearMonth")
-                            ?: document.id
-                    ),
+        totalOrdersCount +=
+            snapshot.totalOrdersCount.toLong()
 
-                openingBalance =
-                    document.getLong("openingBalance") ?: 0L,
+        totalInvoiceAmount +=
+            snapshot.totalInvoiceAmount
 
-                totalOrdersCount =
-                    document.getLong("totalOrdersCount")
-                        ?.toInt() ?: 0,
+        totalGstAmount +=
+            snapshot.totalGstAmounts
 
-                totalInvoiceAmount =
-                    document.getLong("totalInvoiceAmount") ?: 0L,
+        totalInvoiceAmountWithGst +=
+            snapshot.totalInvoiceAmountWithGst
 
-                totalInvoiceAmountWithGst =
-                    document.getLong("totalInvoiceAmountWithGst")
-                        ?: 0L,
+        totalExpenses +=
+            snapshot.totalExpenses
 
-                totalPayments =
-                    document.getLong("totalPayments") ?: 0L,
+        totalPayments +=
+            snapshot.totalPayments
 
-                totalExpenses =
-                    document.getLong("totalExpenses") ?: 0L,
+        totalDiscount +=
+            snapshot.totalDiscount
 
-                closingBalance =
-                    document.getLong("closingBalance") ?: 0L,
+        when {
+            snapshot.closingBalance > 0L -> {
+                totalReceivable +=
+                    snapshot.closingBalance
+            }
 
-                totalGstAmounts =
-                    document.getLong("totalGstAmounts") ?: 0L,
-
-                totalDiscount =
-                    document.getLong("totalDiscount") ?: 0L,
-
-                updatedAt =
-                    document.getDate("updatedAt")
-                        ?.toInstant()
-                        ?: Instant.now()
-            )
+            snapshot.closingBalance < 0L -> {
+                totalAdvance +=
+                    abs(snapshot.closingBalance)
+            }
         }
-        .sortedBy { it.yearMonth }
+    }
+
+    return GlobalSummary(
+        yearMonth = yearMonth.toString(),
+        totalOrdersCount = totalOrdersCount.toInt(),
+        totalInvoiceAmount = totalInvoiceAmount,
+        totalGstAmount = totalGstAmount,
+        totalInvoiceAmountWithGst =
+            totalInvoiceAmountWithGst,
+        totalExpenses = totalExpenses,
+        totalPayments = totalPayments,
+        totalReceivableAmount =
+            totalReceivable,
+        totalAdvanceAmount =
+            totalAdvance,
+        netProfit =
+            totalInvoiceAmount - totalExpenses,
+        cashFlow =
+            totalPayments - totalExpenses,
+        totalDiscount =
+            totalDiscount,
+        updatedAt =
+            Instant.now()
+    )
 }
