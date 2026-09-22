@@ -1,48 +1,38 @@
-@Test
-fun allowsOnlyOneConcurrentOperationForSameClient() {
-    val clientId = "CLI-LOCK-005"
+fun completeClientOperation(
+    clientId: String,
+    operationId: String
+): Boolean {
+    val document = firestore
+        .collection(COLLECTION)
+        .document(clientId)
 
-    val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
-        Timestamp.now().seconds + 60,
-        Timestamp.now().nanos
-    )
+    return firestore.runTransaction { transaction ->
+        val snapshot = transaction.get(document).get()
 
-    val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
-
-    try {
-        val first = executor.submit<Boolean> {
-            repository.acquireClientLock(
-                clientId = clientId,
-                operationId = "OPR-007",
-                operationType = OperationType.ORDER,
-                leaseUntil = leaseUntil
-            )
+        if (!snapshot.exists()) {
+            return@runTransaction false
         }
 
-        val second = executor.submit<Boolean> {
-            repository.acquireClientLock(
-                clientId = clientId,
-                operationId = "OPR-008",
-                operationType = OperationType.PAYMENT,
-                leaseUntil = leaseUntil
-            )
+        val currentState = snapshot.toObject(ClientOperationState::class.java)
+            ?: return@runTransaction false
+
+        if (
+            currentState.operationId != operationId ||
+            currentState.status != OperationStatus.RUNNING
+        ) {
+            return@runTransaction false
         }
 
-        val firstResult = first.get()
-        val secondResult = second.get()
+        val now = com.google.cloud.Timestamp.now()
 
-        assertNotEquals(firstResult, secondResult)
-
-        val state = repository.find(clientId)
-
-        assertNotNull(state)
-        assertEquals(OperationStatus.RUNNING, state?.status)
-
-        assertTrue(
-            state?.operationId == "OPR-007" ||
-            state?.operationId == "OPR-008"
+        val completedState = currentState.copy(
+            status = OperationStatus.COMPLETED,
+            updatedAt = now,
+            leaseUntil = null
         )
-    } finally {
-        executor.shutdown()
-    }
+
+        transaction.set(document, completedState)
+
+        true
+    }.get()
 }
