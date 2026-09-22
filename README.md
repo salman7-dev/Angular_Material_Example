@@ -1,40 +1,48 @@
 @Test
-fun allowsNewOperationAfterLeaseExpires() {
-    val expiredLease = Timestamp.ofTimeSecondsAndNanos(
-        Timestamp.now().seconds - 60,
-        Timestamp.now().nanos
-    )
+fun allowsOnlyOneConcurrentOperationForSameClient() {
+    val clientId = "CLI-LOCK-005"
 
-    repository.save(
-        ClientOperationState(
-            clientId = "CLI-LOCK-004",
-            operationId = "OPR-005",
-            operationType = OperationType.ORDER,
-            status = OperationStatus.RUNNING,
-            startedAt = expiredLease,
-            updatedAt = expiredLease,
-            leaseUntil = expiredLease
-        )
-    )
-
-    val newLease = Timestamp.ofTimeSecondsAndNanos(
+    val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
         Timestamp.now().seconds + 60,
         Timestamp.now().nanos
     )
 
-    val acquired = repository.acquireClientLock(
-        clientId = "CLI-LOCK-004",
-        operationId = "OPR-006",
-        operationType = OperationType.PAYMENT,
-        leaseUntil = newLease
-    )
+    val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
 
-    assertTrue(acquired)
+    try {
+        val first = executor.submit<Boolean> {
+            repository.acquireClientLock(
+                clientId = clientId,
+                operationId = "OPR-007",
+                operationType = OperationType.ORDER,
+                leaseUntil = leaseUntil
+            )
+        }
 
-    val state = repository.find("CLI-LOCK-004")
+        val second = executor.submit<Boolean> {
+            repository.acquireClientLock(
+                clientId = clientId,
+                operationId = "OPR-008",
+                operationType = OperationType.PAYMENT,
+                leaseUntil = leaseUntil
+            )
+        }
 
-    assertNotNull(state)
-    assertEquals("OPR-006", state?.operationId)
-    assertEquals(OperationType.PAYMENT, state?.operationType)
-    assertEquals(OperationStatus.RUNNING, state?.status)
+        val firstResult = first.get()
+        val secondResult = second.get()
+
+        assertNotEquals(firstResult, secondResult)
+
+        val state = repository.find(clientId)
+
+        assertNotNull(state)
+        assertEquals(OperationStatus.RUNNING, state?.status)
+
+        assertTrue(
+            state?.operationId == "OPR-007" ||
+            state?.operationId == "OPR-008"
+        )
+    } finally {
+        executor.shutdown()
+    }
 }
