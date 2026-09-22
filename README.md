@@ -1,31 +1,30 @@
 @Test
-fun blocksSecondOperationForSameClient() {
+fun allowsOperationsForDifferentClients() {
     val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
         Timestamp.now().seconds + 60,
         Timestamp.now().nanos
     )
 
     val firstAcquired = repository.acquireClientLock(
-        clientId = "CLI-LOCK-001",
-        operationId = "OPR-001",
+        clientId = "CLI-LOCK-002",
+        operationId = "OPR-003",
         operationType = OperationType.ORDER,
         leaseUntil = leaseUntil
     )
 
     val secondAcquired = repository.acquireClientLock(
-        clientId = "CLI-LOCK-001",
-        operationId = "OPR-002",
+        clientId = "CLI-LOCK-003",
+        operationId = "OPR-004",
         operationType = OperationType.PAYMENT,
         leaseUntil = leaseUntil
     )
 
     assertTrue(firstAcquired)
-    assertFalse(secondAcquired)
+    assertTrue(secondAcquired)
 
-    val state = repository.find("CLI-LOCK-001")
+    val firstState = repository.find("CLI-LOCK-002")
+    val secondState = repository.find("CLI-LOCK-003")
 
-    assertNotNull(state)
-    assertEquals("OPR-001", state?.operationId)
-    assertEquals(OperationType.ORDER, state?.operationType)
-    assertEquals(OperationStatus.RUNNING, state?.status)
+    assertEquals("OPR-003", firstState?.operationId)
+    assertEquals("OPR-004", secondState?.operationId)
 }
