@@ -1,56 +1,38 @@
-fun renewClientOperation(
-    clientId: String,
-    operationId: String,
-    leaseUntil: Timestamp
-): Boolean {
-    val document = firestore
-        .collection(COLLECTION)
-        .document(clientId)
+@Test
+fun renewsOwnRunningOperation() {
+    val clientId = "CLI-RENEW-${java.util.UUID.randomUUID()}"
 
-    return firestore.runTransaction { transaction ->
-        val snapshot = transaction.get(document).get()
-
-        if (!snapshot.exists()) {
-            return@runTransaction false
-        }
-
-        val currentState = snapshot.toObject(ClientOperationState::class.java)
-            ?: return@runTransaction false
-
-        if (
-            currentState.operationId != operationId ||
-            currentState.status != OperationStatus.RUNNING
-        ) {
-            return@runTransaction false
-        }
-
-        val renewedState = currentState.copy(
-            updatedAt = Timestamp.now(),
-            leaseUntil = leaseUntil
-        )
-
-        transaction.set(document, renewedState)
-
-        true
-    }.get()
-}
-
-
-
-fun renew(
-    clientId: String,
-    operationId: String
-): Boolean {
-    val now = Timestamp.now()
-
-    val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
-        now.seconds + leaseSeconds,
-        now.nanos
+    val initialLease = Timestamp.ofTimeSecondsAndNanos(
+        Timestamp.now().seconds + 30,
+        Timestamp.now().nanos
     )
 
-    return repository.renewClientOperation(
+    val acquired = repository.acquireClientLock(
         clientId = clientId,
-        operationId = operationId,
-        leaseUntil = leaseUntil
+        operationId = "OPR-RENEW-001",
+        operationType = OperationType.ORDER,
+        leaseUntil = initialLease
     )
+
+    assertTrue(acquired)
+
+    val renewedLease = Timestamp.ofTimeSecondsAndNanos(
+        Timestamp.now().seconds + 120,
+        Timestamp.now().nanos
+    )
+
+    val renewed = repository.renewClientOperation(
+        clientId = clientId,
+        operationId = "OPR-RENEW-001",
+        leaseUntil = renewedLease
+    )
+
+    assertTrue(renewed)
+
+    val state = repository.find(clientId)
+
+    assertNotNull(state)
+    assertEquals("OPR-RENEW-001", state?.operationId)
+    assertEquals(OperationStatus.RUNNING, state?.status)
+    assertEquals(renewedLease, state?.leaseUntil)
 }
