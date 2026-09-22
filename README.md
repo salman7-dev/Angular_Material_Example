@@ -4,78 +4,89 @@ import com.clientledger.core.domain.ClientOperationState
 import com.clientledger.core.domain.OperationStatus
 import com.clientledger.core.domain.OperationType
 import com.google.cloud.firestore.Firestore
-import org.junit.jupiter.api.Assertions.*
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
+import org.springframework.stereotype.Repository
 import java.time.Instant
 
-class ClientOperationStateRepositoryTest {
+@Repository
+class ClientOperationStateRepository(
+    private val firestore: Firestore
+) {
 
-    private lateinit var repository: ClientOperationStateRepository
-
-    private lateinit var firestore: Firestore
-
-    @BeforeEach
-    fun setUp() {
-        firestore = com.google.cloud.firestore.FirestoreOptions.newBuilder()
-            .setProjectId("client-ledger-codespace")
-            .setHost("127.0.0.1:8080")
-            .setEmulatorHost("127.0.0.1:8080")
-            .setCredentials(com.google.auth.oauth2.NoCredentials.getInstance())
-            .build()
-            .service
-
-        repository = ClientOperationStateRepository(firestore)
+    companion object {
+        private const val COLLECTION = "client_operation_state"
     }
 
-    @Test
-    fun savesAndFindsOperationState() {
-        val state = ClientOperationState(
-            clientId = "CLI-TEST-001",
-            operationId = "OPR-TEST-001",
-            operationType = OperationType.ORDER,
-            status = OperationStatus.RUNNING,
-            startedAt = Instant.now(),
-            updatedAt = Instant.now(),
-            leaseUntil = Instant.now().plusSeconds(60)
-        )
-
-        repository.save(state)
-
-        val result = repository.find("CLI-TEST-001")
-
-        assertNotNull(result)
-        assertEquals("CLI-TEST-001", result?.clientId)
-        assertEquals("OPR-TEST-001", result?.operationId)
-        assertEquals(OperationType.ORDER, result?.operationType)
-        assertEquals(OperationStatus.RUNNING, result?.status)
+    fun save(state: ClientOperationState) {
+        firestore
+            .collection(COLLECTION)
+            .document(state.clientId)
+            .set(state)
+            .get()
     }
 
-    @Test
-    fun returnsNullWhenStateDoesNotExist() {
-        val result = repository.find("CLI-DOES-NOT-EXIST")
+    fun find(clientId: String): ClientOperationState? {
+        val snapshot = firestore
+            .collection(COLLECTION)
+            .document(clientId)
+            .get()
+            .get()
 
-        assertNull(result)
+        if (!snapshot.exists()) {
+            return null
+        }
+
+        return snapshot.toObject(ClientOperationState::class.java)
     }
 
-    @Test
-    fun deletesOperationState() {
-        val state = ClientOperationState(
-            clientId = "CLI-TEST-002",
-            operationId = "OPR-TEST-002",
-            operationType = OperationType.PAYMENT,
-            status = OperationStatus.COMPLETED,
-            startedAt = Instant.now(),
-            updatedAt = Instant.now(),
-            leaseUntil = null
-        )
+    fun delete(clientId: String) {
+        firestore
+            .collection(COLLECTION)
+            .document(clientId)
+            .delete()
+            .get()
+    }
 
-        repository.save(state)
+    fun acquireClientLock(
+        clientId: String,
+        operationId: String,
+        operationType: OperationType,
+        leaseUntil: Instant
+    ): Boolean {
+        val document = firestore
+            .collection(COLLECTION)
+            .document(clientId)
 
-        assertNotNull(repository.find("CLI-TEST-002"))
+        return firestore.runTransaction { transaction ->
+            val snapshot = transaction.get(document).get()
 
-        repository.delete("CLI-TEST-002")
+            if (snapshot.exists()) {
+                val currentState = snapshot.toObject(ClientOperationState::class.java)
 
-        assertNull(repository.find("CLI-TEST-002"))
+                if (
+                    currentState != null &&
+                    currentState.status == OperationStatus.RUNNING &&
+                    currentState.leaseUntil != null &&
+                    currentState.leaseUntil.isAfter(Instant.now())
+                ) {
+                    return@runTransaction false
+                }
+            }
+
+            val now = Instant.now()
+
+            val newState = ClientOperationState(
+                clientId = clientId,
+                operationId = operationId,
+                operationType = operationType,
+                status = OperationStatus.RUNNING,
+                startedAt = now,
+                updatedAt = now,
+                leaseUntil = leaseUntil
+            )
+
+            transaction.set(document, newState)
+
+            true
+        }.get()
     }
 }
