@@ -1,32 +1,58 @@
-@Test
-fun rejectsFailureWithWrongOperationId() {
-    val clientId = "CLI-FAIL-${java.util.UUID.randomUUID()}"
+package com.clientledger.core.service
 
-    val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
-        Timestamp.now().seconds + 60,
-        Timestamp.now().nanos
-    )
+import com.clientledger.core.domain.OperationType
+import com.clientledger.core.repository.operation.ClientOperationStateRepository
+import com.clientledger.core.utils.IdGenerator
+import com.google.cloud.Timestamp
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.stereotype.Service
 
-    val acquired = repository.acquireClientLock(
-        clientId = clientId,
-        operationId = "OPR-FAIL-002",
-        operationType = OperationType.PAYMENT,
-        leaseUntil = leaseUntil
-    )
+@Service
+class ClientOperationLockService(
+    private val repository: ClientOperationStateRepository,
+    @Value("\${ledger.operation-lock-lease-seconds:120}")
+    private val leaseSeconds: Long
+) {
 
-    assertTrue(acquired)
+    fun acquire(
+        clientId: String,
+        operationType: OperationType,
+        operationId: String = IdGenerator.generateOperationId()
+    ): String? {
+        val now = Timestamp.now()
 
-    val failed = repository.failClientOperation(
-        clientId = clientId,
-        operationId = "OPR-WRONG-002"
-    )
+        val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
+            now.seconds + leaseSeconds,
+            now.nanos
+        )
 
-    assertFalse(failed)
+        val acquired = repository.acquireClientLock(
+            clientId = clientId,
+            operationId = operationId,
+            operationType = operationType,
+            leaseUntil = leaseUntil
+        )
 
-    val state = repository.find(clientId)
+        return if (acquired) operationId else null
+    }
 
-    assertNotNull(state)
-    assertEquals("OPR-FAIL-002", state?.operationId)
-    assertEquals(OperationStatus.RUNNING, state?.status)
-    assertNotNull(state?.leaseUntil)
+    fun complete(
+        clientId: String,
+        operationId: String
+    ): Boolean {
+        return repository.completeClientOperation(
+            clientId = clientId,
+            operationId = operationId
+        )
+    }
+
+    fun fail(
+        clientId: String,
+        operationId: String
+    ): Boolean {
+        return repository.failClientOperation(
+            clientId = clientId,
+            operationId = operationId
+        )
+    }
 }
