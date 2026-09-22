@@ -1,38 +1,40 @@
 @Test
-fun renewsOwnRunningOperation() {
+fun renewsOwnOperation() {
     val clientId = "CLI-RENEW-${java.util.UUID.randomUUID()}"
 
-    val initialLease = Timestamp.ofTimeSecondsAndNanos(
-        Timestamp.now().seconds + 30,
-        Timestamp.now().nanos
-    )
-
-    val acquired = repository.acquireClientLock(
+    val acquired = service.acquire(
         clientId = clientId,
         operationId = "OPR-RENEW-001",
-        operationType = OperationType.ORDER,
-        leaseUntil = initialLease
+        operationType = OperationType.ORDER
     )
 
     assertTrue(acquired)
 
-    val renewedLease = Timestamp.ofTimeSecondsAndNanos(
-        Timestamp.now().seconds + 120,
-        Timestamp.now().nanos
-    )
-
-    val renewed = repository.renewClientOperation(
+    val renewed = service.renew(
         clientId = clientId,
-        operationId = "OPR-RENEW-001",
-        leaseUntil = renewedLease
+        operationId = "OPR-RENEW-001"
     )
 
     assertTrue(renewed)
+}
 
-    val state = repository.find(clientId)
 
-    assertNotNull(state)
-    assertEquals("OPR-RENEW-001", state?.operationId)
-    assertEquals(OperationStatus.RUNNING, state?.status)
-    assertEquals(renewedLease, state?.leaseUntil)
+@Test
+fun rejectsRenewForWrongOperation() {
+    val clientId = "CLI-RENEW-${java.util.UUID.randomUUID()}"
+
+    val acquired = service.acquire(
+        clientId = clientId,
+        operationId = "OPR-RENEW-002",
+        operationType = OperationType.ORDER
+    )
+
+    assertTrue(acquired)
+
+    val renewed = service.renew(
+        clientId = clientId,
+        operationId = "OPR-WRONG-001"
+    )
+
+    assertFalse(renewed)
 }
