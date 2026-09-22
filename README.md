@@ -1,36 +1,32 @@
-fun failClientOperation(
-    clientId: String,
-    operationId: String
-): Boolean {
-    val document = firestore
-        .collection(COLLECTION)
-        .document(clientId)
+@Test
+fun failsOwnRunningOperation() {
+    val clientId = "CLI-FAIL-${java.util.UUID.randomUUID()}"
 
-    return firestore.runTransaction { transaction ->
-        val snapshot = transaction.get(document).get()
+    val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
+        Timestamp.now().seconds + 60,
+        Timestamp.now().nanos
+    )
 
-        if (!snapshot.exists()) {
-            return@runTransaction false
-        }
+    val acquired = repository.acquireClientLock(
+        clientId = clientId,
+        operationId = "OPR-FAIL-001",
+        operationType = OperationType.PAYMENT,
+        leaseUntil = leaseUntil
+    )
 
-        val currentState = snapshot.toObject(ClientOperationState::class.java)
-            ?: return@runTransaction false
+    assertTrue(acquired)
 
-        if (
-            currentState.operationId != operationId ||
-            currentState.status != OperationStatus.RUNNING
-        ) {
-            return@runTransaction false
-        }
+    val failed = repository.failClientOperation(
+        clientId = clientId,
+        operationId = "OPR-FAIL-001"
+    )
 
-        val failedState = currentState.copy(
-            status = OperationStatus.FAILED,
-            updatedAt = com.google.cloud.Timestamp.now(),
-            leaseUntil = null
-        )
+    assertTrue(failed)
 
-        transaction.set(document, failedState)
+    val state = repository.find(clientId)
 
-        true
-    }.get()
+    assertNotNull(state)
+    assertEquals("OPR-FAIL-001", state?.operationId)
+    assertEquals(OperationStatus.FAILED, state?.status)
+    assertNull(state?.leaseUntil)
 }
