@@ -1,150 +1,56 @@
-            clientId = clientId,
-            operationType = OperationType.ORDER,
-            operationId = "OPR-SERVICE-006"
+fun renewClientOperation(
+    clientId: String,
+    operationId: String,
+    leaseUntil: Timestamp
+): Boolean {
+    val document = firestore
+        .collection(COLLECTION)
+        .document(clientId)
+
+    return firestore.runTransaction { transaction ->
+        val snapshot = transaction.get(document).get()
+
+        if (!snapshot.exists()) {
+            return@runTransaction false
+        }
+
+        val currentState = snapshot.toObject(ClientOperationState::class.java)
+            ?: return@runTransaction false
+
+        if (
+            currentState.operationId != operationId ||
+            currentState.status != OperationStatus.RUNNING
+        ) {
+            return@runTransaction false
+        }
+
+        val renewedState = currentState.copy(
+            updatedAt = Timestamp.now(),
+            leaseUntil = leaseUntil
         )
 
-        assertEquals("OPR-SERVICE-006", operationId)
+        transaction.set(document, renewedState)
 
-        val completed = service.complete(
-            clientId = clientId,
-            operationId = operationId!!
-        )
+        true
+    }.get()
+}
 
-        assertTrue(completed)
 
-        val state = repository.find(clientId)
 
-        assertNotNull(state)
-        assertEquals(OperationStatus.COMPLETED, state?.status)
-        assertNull(state?.leaseUntil)
-    }
+fun renew(
+    clientId: String,
+    operationId: String
+): Boolean {
+    val now = Timestamp.now()
 
-    @Test
-    fun failsOwnOperation() {
-        val clientId = "CLI-SERVICE-${java.util.UUID.randomUUID()}"
+    val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
+        now.seconds + leaseSeconds,
+        now.nanos
+    )
 
-        val operationId = service.acquire(
-            clientId = clientId,
-            operationType = OperationType.PAYMENT,
-            operationId = "OPR-SERVICE-007"
-        )
-
-        assertEquals("OPR-SERVICE-007", operationId)
-
-        val failed = service.fail(
-            clientId = clientId,
-            operationId = operationId!!
-        )
-
-        assertTrue(failed)
-
-        val state = repository.find(clientId)
-
-        assertNotNull(state)
-        assertEquals(OperationStatus.FAILED, state?.status)
-        assertNull(state?.leaseUntil)
-    }
-
-    @Test
-    fun allowsNewOperationAfterLeaseExpires() {
-        val clientId = "CLI-SERVICE-${java.util.UUID.randomUUID()}"
-
-        val expiredLease = Timestamp.ofTimeSecondsAndNanos(
-            Timestamp.now().seconds - 60,
-            Timestamp.now().nanos
-        )
-
-        repository.save(
-            ClientOperationState(
-                clientId = clientId,
-                operationId = "OPR-SERVICE-008",
-                operationType = OperationType.ORDER,
-                status = OperationStatus.RUNNING,
-                startedAt = expiredLease,
-                updatedAt = expiredLease,
-                leaseUntil = expiredLease
-            )
-        )
-
-        val newOperation = service.acquire(
-            clientId = clientId,
-            operationType = OperationType.PAYMENT,
-            operationId = "OPR-SERVICE-009"
-        )
-
-        assertEquals("OPR-SERVICE-009", newOperation)
-
-        val state = repository.find(clientId)
-
-        assertNotNull(state)
-        assertEquals("OPR-SERVICE-009", state?.operationId)
-        assertEquals(OperationType.PAYMENT, state?.operationType)
-        assertEquals(OperationStatus.RUNNING, state?.status)
-    }
-
-    @Test
-    fun generatesOperationIdWhenNotProvided() {
-        val clientId = "CLI-SERVICE-${java.util.UUID.randomUUID()}"
-
-        val operationId = service.acquire(
-            clientId = clientId,
-            operationType = OperationType.ORDER
-        )
-
-        assertNotNull(operationId)
-        assertTrue(operationId!!.startsWith("OPR-"))
-
-        val state = repository.find(clientId)
-
-        assertNotNull(state)
-        assertEquals(operationId, state?.operationId)
-    }
-
-    @Test
-    fun rejectsCompletionWithWrongOperationId() {
-        val clientId = "CLI-SERVICE-${java.util.UUID.randomUUID()}"
-
-        service.acquire(
-            clientId = clientId,
-            operationType = OperationType.ORDER,
-            operationId = "OPR-SERVICE-010"
-        )
-
-        val completed = service.complete(
-            clientId = clientId,
-            operationId = "OPR-WRONG-001"
-        )
-
-        assertFalse(completed)
-
-        val state = repository.find(clientId)
-
-        assertNotNull(state)
-        assertEquals("OPR-SERVICE-010", state?.operationId)
-        assertEquals(OperationStatus.RUNNING, state?.status)
-    }
-
-    @Test
-    fun rejectsFailureWithWrongOperationId() {
-        val clientId = "CLI-SERVICE-${java.util.UUID.randomUUID()}"
-
-        service.acquire(
-            clientId = clientId,
-            operationType = OperationType.PAYMENT,
-            operationId = "OPR-SERVICE-011"
-        )
-
-        val failed = service.fail(
-            clientId = clientId,
-            operationId = "OPR-WRONG-002"
-        )
-
-        assertFalse(failed)
-
-        val state = repository.find(clientId)
-
-        assertNotNull(state)
-        assertEquals("OPR-SERVICE-011", state?.operationId)
-        assertEquals(OperationStatus.RUNNING, state?.status)
-    }
+    return repository.renewClientOperation(
+        clientId = clientId,
+        operationId = operationId,
+        leaseUntil = leaseUntil
+    )
 }
