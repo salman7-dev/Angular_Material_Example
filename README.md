@@ -1,102 +1,234 @@
-@Test
-fun allowsNewOperationAfterCompletion() {
-    val clientId = "CLI-LIFECYCLE-${java.util.UUID.randomUUID()}"
+package com.clientledger.core.service
 
-    val firstOperation = service.acquire(
-        clientId = clientId,
-        operationType = OperationType.ORDER,
-        operationId = "OPR-LIFECYCLE-001"
-    )
+import com.clientledger.core.domain.OperationType
+import com.clientledger.core.repository.operation.ClientOperationStateRepository
+import com.clientledger.core.utils.IdGenerator
+import com.google.cloud.Timestamp
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.stereotype.Service
 
-    assertEquals("OPR-LIFECYCLE-001", firstOperation)
+@Service
+class ClientOperationLockService(
+    private val repository: ClientOperationStateRepository,
+    @Value("\${ledger.operation-lock-lease-seconds:120}")
+    private val leaseSeconds: Long
+) {
 
-    val completed = service.complete(
-        clientId = clientId,
-        operationId = "OPR-LIFECYCLE-001"
-    )
+    fun acquire(
+        clientId: String,
+        operationType: OperationType,
+        operationId: String = IdGenerator.generateOperationId()
+    ): String? {
+        val now = Timestamp.now()
 
-    assertTrue(completed)
-
-    val secondOperation = service.acquire(
-        clientId = clientId,
-        operationType = OperationType.PAYMENT,
-        operationId = "OPR-LIFECYCLE-002"
-    )
-
-    assertEquals("OPR-LIFECYCLE-002", secondOperation)
-}
-
-@Test
-fun allowsNewOperationAfterFailure() {
-    val clientId = "CLI-LIFECYCLE-${java.util.UUID.randomUUID()}"
-
-    val firstOperation = service.acquire(
-        clientId = clientId,
-        operationType = OperationType.ORDER,
-        operationId = "OPR-LIFECYCLE-003"
-    )
-
-    assertEquals("OPR-LIFECYCLE-003", firstOperation)
-
-    val failed = service.fail(
-        clientId = clientId,
-        operationId = "OPR-LIFECYCLE-003"
-    )
-
-    assertTrue(failed)
-
-    val secondOperation = service.acquire(
-        clientId = clientId,
-        operationType = OperationType.PAYMENT,
-        operationId = "OPR-LIFECYCLE-004"
-    )
-
-    assertEquals("OPR-LIFECYCLE-004", secondOperation)
-}
-
-@Test
-fun allowsOnlyOneConcurrentOperationForSameClient() {
-    val clientId = "CLI-CONCURRENT-${java.util.UUID.randomUUID()}"
-
-    val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
-
-    try {
-        val first = executor.submit<String?> {
-            service.acquire(
-                clientId = clientId,
-                operationType = OperationType.ORDER,
-                operationId = "OPR-CONCURRENT-001"
-            )
-        }
-
-        val second = executor.submit<String?> {
-            service.acquire(
-                clientId = clientId,
-                operationType = OperationType.PAYMENT,
-                operationId = "OPR-CONCURRENT-002"
-            )
-        }
-
-        val firstResult = first.get()
-        val secondResult = second.get()
-
-        assertNotEquals(firstResult != null, secondResult != null)
-
-        assertTrue(
-            firstResult == "OPR-CONCURRENT-001" ||
-            secondResult == "OPR-CONCURRENT-002"
+        val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
+            now.seconds + leaseSeconds,
+            now.nanos
         )
 
-        val state = repository.find(clientId)
-
-        assertNotNull(state)
-        assertEquals(OperationStatus.RUNNING, state?.status)
-
-        assertTrue(
-            state?.operationId == "OPR-CONCURRENT-001" ||
-            state?.operationId == "OPR-CONCURRENT-002"
+        val acquired = repository.acquireClientLock(
+            clientId = clientId,
+            operationId = operationId,
+            operationType = operationType,
+            leaseUntil = leaseUntil
         )
-    } finally {
-        executor.shutdown()
+
+        return if (acquired) operationId else null
     }
+
+    fun complete(
+        clientId: String,
+        operationId: String
+    ): Boolean {
+        return repository.completeClientOperation(
+            clientId = clientId,
+            operationId = operationId
+        )
+    }
+
+    fun fail(
+        clientId: String,
+        operationId: String
+    ): Boolean {
+        return repository.failClientOperation(
+            clientId = clientId,
+            operationId = operationId
+        )
+    }
+
+    fun renew(
+        clientId: String,
+        operationId: String
+    ): Boolean {
+        val now = Timestamp.now()
+
+        val leaseUntil = Timestamp.ofTimeSecondsAndNanos(
+            now.seconds + leaseSeconds,
+            now.nanos
+        )
+
+        return repository.renewClientOperation(
+            clientId = clientId,
+            operationId = operationId,
+            leaseUntil = leaseUntil
+        )
+    }
+}
+
+
+package com.clientledger.core.service
+
+import com.clientledger.core.domain.Client
+import com.clientledger.core.domain.ClientMonthlyHistory
+import com.clientledger.core.repository.history.ClientMonthlyHistoryRepository
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.stereotype.Service
+import java.time.Clock
+import java.time.YearMonth
+
+@Service
+class ClientMonthlyHistoryMaterializationService(
+    private val historyRepository: ClientMonthlyHistoryRepository,
+    private val clock: Clock,
+    @Value("\${ledger.editable-months:8}")
+    private val editableMonths: Int
+) {
+
+    fun materializeForNewClient(client: Client) {
+        val currentMonth = YearMonth.now(clock)
+        val startMonth = currentMonth.minusMonths(editableMonths.toLong() - 1)
+
+        var openingBalance = client.initialOpeningBalance
+
+        var month = startMonth
+        while (!month.isAfter(currentMonth)) {
+            val yearMonth = month.toString()
+
+            val history = ClientMonthlyHistory(
+                clientId = client.id,
+                ownerId = client.ownerId,
+                yearMonth = yearMonth,
+                openingBalance = openingBalance,
+                closingBalance = openingBalance,
+                receivable = if (openingBalance > 0) openingBalance else 0,
+                advance = if (openingBalance < 0) -openingBalance else 0,
+                status = getClientType(openingBalance)
+            )
+
+            historyRepository.save(
+                history = history,
+                bucketId = client.bucketId
+            )
+
+            month = month.plusMonths(1)
+        }
+    }
+
+    private fun getClientType(amount: Long) =
+        when {
+            amount > 0 -> com.clientledger.core.domain.ClientType.RECEIVABLE
+            amount < 0 -> com.clientledger.core.domain.ClientType.ADVANCE
+            else -> com.clientledger.core.domain.ClientType.SETTLED
+        }
+}
+
+
+package com.clientledger.core.repository.history
+
+import com.clientledger.core.domain.ClientHistoryBucket
+import com.clientledger.core.domain.ClientMonthlyHistory
+import com.google.cloud.firestore.Firestore
+import org.springframework.stereotype.Repository
+
+@Repository
+class ClientMonthlyHistoryRepository(
+    private val firestore: Firestore
+) {
+
+    companion object {
+        private const val COLLECTION = "master_history_client_data"
+        private const val CAPACITY = 50
+    }
+
+    fun save(
+        history: ClientMonthlyHistory,
+        bucketId: String
+    ) {
+        val document = getBucketDocument(history.yearMonth, bucketId)
+        val snapshot = document.get().get()
+
+        if (!snapshot.exists()) {
+            val bucket = ClientHistoryBucket(
+                capacity = CAPACITY,
+                size = 1,
+                clients = mapOf(history.clientId to history)
+            )
+
+            document.set(bucket).get()
+            return
+        }
+
+        val bucket = snapshot.toObject(ClientHistoryBucket::class.java)
+            ?: ClientHistoryBucket(capacity = CAPACITY)
+
+        val isNewClient = !bucket.clients.containsKey(history.clientId)
+
+        val updatedClients = bucket.clients.toMutableMap()
+        updatedClients[history.clientId] = history
+
+        val updatedBucket = bucket.copy(
+            size = if (isNewClient) bucket.size + 1 else bucket.size,
+            clients = updatedClients
+        )
+
+        document.set(updatedBucket).get()
+    }
+
+    fun find(
+        clientId: String,
+        yearMonth: String,
+        bucketId: String
+    ): ClientMonthlyHistory? {
+
+        val snapshot = getBucketDocument(yearMonth, bucketId)
+            .get()
+            .get()
+
+        if (!snapshot.exists()) {
+            return null
+        }
+
+        val bucket = snapshot.toObject(ClientHistoryBucket::class.java)
+            ?: return null
+
+        return bucket.clients[clientId]
+    }
+
+    fun getBucketSize(
+        yearMonth: String,
+        bucketId: String
+    ): Int {
+
+        val snapshot = getBucketDocument(yearMonth, bucketId)
+            .get()
+            .get()
+
+        if (!snapshot.exists()) {
+            return 0
+        }
+
+        val bucket = snapshot.toObject(ClientHistoryBucket::class.java)
+            ?: return 0
+
+        return bucket.size
+    }
+
+    private fun getBucketDocument(
+        yearMonth: String,
+        bucketId: String
+    ) = firestore
+        .collection(COLLECTION)
+        .document(yearMonth.substring(0, 4))
+        .collection(yearMonth.substring(5, 7))
+        .document(bucketId)
 }
