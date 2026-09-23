@@ -1,122 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-<meta http-equiv="x-ua-compatible" content="IE=edge"/>
-<title>Test results - ClientControllerIntegrationTest</title>
-<link href="../css/base-style.css" rel="stylesheet" type="text/css"/>
-<link href="../css/style.css" rel="stylesheet" type="text/css"/>
-<script src="../js/report.js" type="text/javascript"></script>
-</head>
-<body>
-<div id="content">
-<h1>ClientControllerIntegrationTest</h1>
-<div class="breadcrumbs">
-<a href="../index.html">all</a> &gt; 
-<a href="../packages/com.clientledger.core.controller.html">com.clientledger.core.controller</a> &gt; ClientControllerIntegrationTest</div>
-<div id="summary">
-<table>
-<tr>
-<td>
-<div class="summaryGroup">
-<table>
-<tr>
-<td>
-<div class="infoBox" id="tests">
-<div class="counter">1</div>
-<p>tests</p>
-</div>
-</td>
-<td>
-<div class="infoBox" id="failures">
-<div class="counter">1</div>
-<p>failures</p>
-</div>
-</td>
-<td>
-<div class="infoBox" id="ignored">
-<div class="counter">0</div>
-<p>ignored</p>
-</div>
-</td>
-<td>
-<div class="infoBox" id="duration">
-<div class="counter">5.353s</div>
-<p>duration</p>
-</div>
-</td>
-</tr>
-</table>
-</div>
-</td>
-<td>
-<div class="infoBox failures" id="successRate">
-<div class="percent">0%</div>
-<p>successful</p>
-</div>
-</td>
-</tr>
-</table>
-</div>
-<div id="tabs">
-<ul class="tabLinks">
-<li>
-<a href="#tab0">Failed tests</a>
-</li>
-<li>
-<a href="#tab1">Tests</a>
-</li>
-<li>
-<a href="#tab2">Standard output</a>
-</li>
-</ul>
-<div id="tab0" class="tab">
-<h2>Failed tests</h2>
-<div class="test">
-<a name="createsClientAndMaterializesEightMonths()"></a>
-<h3 class="failures">createsClientAndMaterializesEightMonths()</h3>
-<span class="code">
-<pre>com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException: Instantiation of [simple type, class com.clientledger.core.domain.Client] value failed for JSON property name due to missing (therefore NULL) value for creator parameter name which is a non-nullable type
- at [Source: (String)&quot;{&quot;success&quot;:false,&quot;message&quot;:&quot;An unexpected error occurred&quot;}&quot;; line: 1, column: 58] (through reference chain: com.clientledger.core.domain.Client[&quot;name&quot;])
-	at app//com.fasterxml.jackson.module.kotlin.KotlinValueInstantiator.createFromObjectWith(KotlinValueInstantiator.kt:84)
-	at app//com.fasterxml.jackson.databind.deser.impl.PropertyBasedCreator.build(PropertyBasedCreator.java:202)
-	at app//com.fasterxml.jackson.databind.deser.BeanDeserializer._deserializeUsingPropertyBased(BeanDeserializer.java:525)
-	at app//com.fasterxml.jackson.databind.deser.BeanDeserializerBase.deserializeFromObjectUsingNonDefault(BeanDeserializerBase.java:1409)
-	at app//com.fasterxml.jackson.databind.deser.BeanDeserializer.deserializeFromObject(BeanDeserializer.java:352)
-	at app//com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:185)
-	at app//com.fasterxml.jackson.databind.deser.DefaultDeserializationContext.readRootValue(DefaultDeserializationContext.java:323)
-	at app//com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:4825)
-	at app//com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3772)
-	at app//com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3740)
-	at app//com.clientledger.core.controller.ClientControllerIntegrationTest.createsClientAndMaterializesEightMonths(ClientControllerIntegrationTest.kt:162)
-	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
-	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
-	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
-</pre>
-</span>
-</div>
-</div>
-<div id="tab1" class="tab">
-<h2>Tests</h2>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Duration</th>
-<th>Result</th>
-</tr>
-</thead>
-<tr>
-<td class="failures">createsClientAndMaterializesEightMonths()</td>
-<td class="failures">5.353s</td>
-<td class="failures">failed</td>
-</tr>
-</table>
-</div>
-<div id="tab2" class="tab">
-<h2>Standard output</h2>
-<span class="code">
-<pre>Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
+Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
 
   .   ____          _            __ _ _
  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
@@ -126,17 +8,21 @@
  =========|_|==============|___/=/_/_/_/
  :: Spring Boot ::                (v3.2.0)
 
-2026-09-23T16:07:46.168+05:30  INFO 22724 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Starting ClientControllerIntegrationTest using Java 17.0.11 with PID 22724 (started by khans in D:\New folder\client-ledger-codespace-main\app)
-2026-09-23T16:07:46.175+05:30  INFO 22724 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : No active profile set, falling back to 1 default profile: &quot;default&quot;
-2026-09-23T16:07:53.132+05:30  INFO 22724 --- [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
-2026-09-23T16:07:53.133+05:30  INFO 22724 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
-2026-09-23T16:07:53.140+05:30  INFO 22724 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 2 ms
-2026-09-23T16:07:53.192+05:30  INFO 22724 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Started ClientControllerIntegrationTest in 8.039 seconds (process running for 12.471)
+2026-09-23T16:10:17.141+05:30  INFO 25784 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Starting ClientControllerIntegrationTest using Java 17.0.11 with PID 25784 (started by khans in D:\New folder\client-ledger-codespace-main\app)
+2026-09-23T16:10:17.147+05:30  INFO 25784 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : No active profile set, falling back to 1 default profile: "default"
+2026-09-23T16:10:23.829+05:30  INFO 25784 --- [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-23T16:10:23.830+05:30  INFO 25784 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-23T16:10:23.834+05:30  INFO 25784 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 2 ms
+2026-09-23T16:10:23.892+05:30  INFO 25784 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Started ClientControllerIntegrationTest in 7.513 seconds (process running for 10.746)
 CLIENT COUNT BEFORE CLEANUP = 1
 HISTORY BUCKETS BEFORE CLEANUP = [bucket_000]
 CLIENT COUNT AFTER CLEANUP = 0
 HISTORY BUCKETS AFTER CLEANUP = [bucket_000]
-2026-09-23T16:07:58.392+05:30 ERROR 22724 --- [    Test worker] c.c.c.exception.GlobalExceptionHandler   : Unexpected ledger error. clientId=N/A, message=java.lang.IllegalStateException: Bucket bucket_000 is full
+BUCKET EXISTS AFTER CLEANUP = true
+BUCKET DATA AFTER CLEANUP = {size=2, capacity=50}
+CLIENT HISTORY COUNT AFTER CLEANUP = 2
+CLIENT HISTORY IDS AFTER CLEANUP = [CLI-001, CLI-002]
+2026-09-23T16:10:30.251+05:30 ERROR 25784 --- [    Test worker] c.c.c.exception.GlobalExceptionHandler   : Unexpected ledger error. clientId=N/A, message=java.lang.IllegalStateException: Bucket bucket_000 is full
 
 java.util.concurrent.ExecutionException: java.lang.IllegalStateException: Bucket bucket_000 is full
 	at com.google.common.util.concurrent.AbstractFuture.getDoneValue(AbstractFuture.java:588) ~[guava-31.1-jre.jar:na]
@@ -185,7 +71,7 @@ java.util.concurrent.ExecutionException: java.lang.IllegalStateException: Bucket
 	at org.springframework.test.web.servlet.setup.MockMvcFilterDecorator.doFilter(MockMvcFilterDecorator.java:151) ~[spring-test-6.1.1.jar:6.1.1]
 	at org.springframework.mock.web.MockFilterChain.doFilter(MockFilterChain.java:132) ~[spring-test-6.1.1.jar:6.1.1]
 	at org.springframework.test.web.servlet.MockMvc.perform(MockMvc.java:201) ~[spring-test-6.1.1.jar:6.1.1]
-	at com.clientledger.core.controller.ClientControllerIntegrationTest.createsClientAndMaterializesEightMonths(ClientControllerIntegrationTest.kt:151) ~[test/:na]
+	at com.clientledger.core.controller.ClientControllerIntegrationTest.createsClientAndMaterializesEightMonths(ClientControllerIntegrationTest.kt:176) ~[test/:na]
 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[na:na]
 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77) ~[na:na]
 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[na:na]
@@ -284,14 +170,14 @@ Caused by: java.lang.IllegalStateException: Bucket bucket_000 is full
 	at java.base/java.lang.Thread.run(Thread.java:842) ~[na:na]
 
 STATUS = 500
-BODY = {&quot;success&quot;:false,&quot;message&quot;:&quot;An unexpected error occurred&quot;}
+BODY = {"success":false,"message":"An unexpected error occurred"}
 
 MockHttpServletRequest:
       HTTP Method = POST
       Request URI = /api/clients
        Parameters = {}
-          Headers = [Content-Type:&quot;application/json;charset=UTF-8&quot;, Content-Length:&quot;215&quot;]
-             Body = {&quot;name&quot;:&quot;ABC Traders&quot;,&quot;phone&quot;:&quot;9876543210&quot;,&quot;email&quot;:&quot;abc@example.com&quot;,&quot;gstNumber&quot;:&quot;27ABCDE1234F1Z5&quot;,&quot;address&quot;:{&quot;line1&quot;:&quot;Shop 10&quot;,&quot;city&quot;:&quot;Mumbai&quot;,&quot;state&quot;:&quot;Maharashtra&quot;,&quot;pinCode&quot;:&quot;400001&quot;},&quot;initialOpeningBalance&quot;:5000}
+          Headers = [Content-Type:"application/json;charset=UTF-8", Content-Length:"215"]
+             Body = {"name":"ABC Traders","phone":"9876543210","email":"abc@example.com","gstNumber":"27ABCDE1234F1Z5","address":{"line1":"Shop 10","city":"Mumbai","state":"Maharashtra","pinCode":"400001"},"initialOpeningBalance":5000}
     Session Attrs = {}
 
 Handler:
@@ -316,25 +202,9 @@ FlashMap:
 MockHttpServletResponse:
            Status = 500
     Error message = null
-          Headers = [Content-Type:&quot;application/json&quot;]
+          Headers = [Content-Type:"application/json"]
      Content type = application/json
-             Body = {&quot;success&quot;:false,&quot;message&quot;:&quot;An unexpected error occurred&quot;}
+             Body = {"success":false,"message":"An unexpected error occurred"}
     Forwarded URL = null
    Redirected URL = null
           Cookies = []
-</pre>
-</span>
-</div>
-</div>
-<div id="footer">
-<p>
-<div>
-<label class="hidden" id="label-for-line-wrapping-toggle" for="line-wrapping-toggle">Wrap lines
-<input id="line-wrapping-toggle" type="checkbox" autocomplete="off"/>
-</label>
-</div>Generated by 
-<a href="http://www.gradle.org">Gradle 8.5</a> at 23-Sep-2026, 4:07:59 pm</p>
-</div>
-</div>
-</body>
-</html>
