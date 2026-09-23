@@ -4,175 +4,222 @@ import com.clientledger.core.domain.Address
 import com.clientledger.core.domain.Client
 import com.clientledger.core.domain.ClientType
 import com.clientledger.core.service.CurrentOwnerProvider
+import com.google.cloud.NoCredentials
 import com.google.cloud.firestore.Firestore
-import org.springframework.stereotype.Repository
-import java.time.Instant
-import java.util.Date
+import com.google.cloud.firestore.FirestoreOptions
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 
-@Repository
-class ClientRepository(
-    private val firestore: Firestore,
-    private val currentOwnerProvider: CurrentOwnerProvider
-) {
+class ClientRepositoryTest {
 
-    private val ownersCollection = firestore.collection("owners")
+    private lateinit var firestore: Firestore
+    private lateinit var currentOwnerProvider: CurrentOwnerProvider
+    private lateinit var repository: ClientRepository
 
-    private fun clientsCollection() =
-        ownersCollection
-            .document(currentOwnerProvider.getOwnerId())
-            .collection("clients")
+    @BeforeEach
+    fun setUp() {
 
-    fun save(client: Client) {
-        clientsCollection()
-            .document(client.id)
-            .set(client)
-            .get()
-    }
+        firestore = FirestoreOptions.newBuilder()
+            .setProjectId("client-ledger-codespace")
+            .setHost("127.0.0.1:8080")
+            .setEmulatorHost("127.0.0.1:8080")
+            .setCredentials(NoCredentials.getInstance())
+            .build()
+            .service
 
-    fun findById(clientId: String): Client? {
-        val snapshot = clientsCollection()
-            .document(clientId)
-            .get()
-            .get()
+        currentOwnerProvider = mock()
 
-        if (!snapshot.exists()) {
-            return null
-        }
-
-        return fromFirestore(snapshot.data ?: return null)
-    }
-
-    fun delete(clientId: String) {
-        clientsCollection()
-            .document(clientId)
-            .delete()
-            .get()
-    }
-
-    fun count(): Long {
-        return clientsCollection()
-            .get()
-            .get()
-            .size()
-            .toLong()
-    }
-
-    private fun fromFirestore(data: Map<String, Any?>): Client {
-
-        val addressData = data["address"] as? Map<*, *>
-
-        return Client(
-            id = data["id"] as? String ?: "",
-            ownerId = data["ownerId"] as? String ?: "",
-            name = data["name"] as? String ?: "",
-            phone = data["phone"] as? String ?: "",
-            email = data["email"] as? String ?: "",
-            gstNumber = data["gstNumber"] as? String,
-            address = addressData?.let {
-                Address(
-                    line1 = it["line1"] as? String ?: "",
-                    line2 = it["line2"] as? String,
-                    city = it["city"] as? String ?: "",
-                    state = it["state"] as? String ?: "",
-                    pinCode = it["pinCode"] as? String ?: "",
-                    country = it["country"] as? String ?: "India"
-                )
-            },
-            initialOpeningBalance =
-            (data["initialOpeningBalance"] as? Number)?.toLong() ?: 0,
-            latestAmount =
-            (data["latestAmount"] as? Number)?.toLong() ?: 0,
-            type =
-            (data["type"] as? String)
-                ?.let { runCatching { ClientType.valueOf(it) }.getOrNull() }
-                ?: ClientType.SETTLED,
-            bucketId = data["bucketId"] as? String ?: "",
-            createdAt =
-            (data["createdAt"] as? Date)?.toInstant() ?: Instant.now(),
-            updatedAt =
-            (data["updatedAt"] as? Date)?.toInstant() ?: Instant.now()
+        repository = ClientRepository(
+            firestore,
+            currentOwnerProvider
         )
-    }
-}
 
-
-package com.clientledger.core.repository.order
-
-import com.clientledger.core.domain.Order
-import com.clientledger.core.service.CurrentOwnerProvider
-import com.google.cloud.firestore.Firestore
-import org.springframework.stereotype.Repository
-
-@Repository
-class OrderRepository(
-    private val firestore: Firestore,
-    private val currentOwnerProvider: CurrentOwnerProvider
-) {
-
-    private val transactionsCollection = "transactions"
-    private val itemsCollection = "items"
-
-    private fun itemsCollection(year: String, month: String) =
-        firestore
-            .collection("owners")
-            .document(currentOwnerProvider.getOwnerId())
-            .collection(transactionsCollection)
-            .document(year)
-            .collection(month)
-            .document(itemsCollection)
-
-    fun save(order: Order) {
-        val year = order.orderDate.substring(0, 4)
-        val month = order.orderDate.substring(5, 7)
-
-        itemsCollection(year, month)
-            .document(order.id)
-            .set(order)
-            .get()
-    }
-
-    fun findById(
-        orderId: String,
-        year: String,
-        month: String
-    ): Order? {
-        val snapshot = itemsCollection(year, month)
-            .document(orderId)
+        firestore.collectionGroup("clients")
             .get()
             .get()
-
-        if (!snapshot.exists()) {
-            return null
-        }
-
-        return snapshot.toObject(Order::class.java)
-    }
-
-    fun findAllForMonth(
-        year: String,
-        month: String,
-        clientId: String
-    ): List<Order> {
-        val querySnapshot = itemsCollection(year, month)
-            .whereEqualTo("clientId", clientId)
-            .get()
-            .get()
-
-        return querySnapshot.getDocuments()
-            .mapNotNull { document ->
-                document.toObject(Order::class.java)
+            .documents
+            .forEach {
+                it.reference.delete().get()
             }
     }
 
-    fun delete(
-        orderId: String,
-        year: String,
-        month: String
-    ) {
-        itemsCollection(year, month)
-            .document(orderId)
-            .delete()
-            .get()
+    @AfterEach
+    fun tearDown() {
+        firestore.close()
+    }
+
+    @Test
+    fun savesAndFindsClientForOwner() {
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER001")
+
+        val client = Client(
+            id = "CLI-001",
+            ownerId = "OWNER001",
+            name = "ABC Traders",
+            phone = "9876543210",
+            email = "abc@test.com",
+            gstNumber = "GST123",
+            address = Address(
+                line1 = "Main Road",
+                city = "Mumbai",
+                state = "Maharashtra",
+                pinCode = "400001"
+            ),
+            initialOpeningBalance = 5000,
+            latestAmount = 5000,
+            type = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        repository.save(client)
+
+        val result = repository.findById("CLI-001")
+
+        assertNotNull(result)
+        assertEquals("CLI-001", result?.id)
+        assertEquals("OWNER001", result?.ownerId)
+        assertEquals("ABC Traders", result?.name)
+        assertEquals(5000, result?.latestAmount)
+        assertEquals(ClientType.RECEIVABLE, result?.type)
+    }
+
+    @Test
+    fun differentOwnersCanHaveSameClientId() {
+
+        val client1 = Client(
+            id = "CLI-001",
+            ownerId = "OWNER001",
+            name = "Owner One Client",
+            phone = "1111111111"
+        )
+
+        val client2 = Client(
+            id = "CLI-001",
+            ownerId = "OWNER002",
+            name = "Owner Two Client",
+            phone = "2222222222"
+        )
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER001")
+
+        repository.save(client1)
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER002")
+
+        repository.save(client2)
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER001")
+
+        val ownerOneClient = repository.findById("CLI-001")
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER002")
+
+        val ownerTwoClient = repository.findById("CLI-001")
+
+        assertEquals("Owner One Client", ownerOneClient?.name)
+        assertEquals("Owner Two Client", ownerTwoClient?.name)
+        assertEquals("OWNER001", ownerOneClient?.ownerId)
+        assertEquals("OWNER002", ownerTwoClient?.ownerId)
+    }
+
+    @Test
+    fun findByIdDoesNotCrossOwnerBoundary() {
+
+        val client = Client(
+            id = "CLI-001",
+            ownerId = "OWNER001",
+            name = "Owner One Client",
+            phone = "1111111111"
+        )
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER001")
+
+        repository.save(client)
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER002")
+
+        val result = repository.findById("CLI-001")
+
+        assertNull(result)
+    }
+
+    @Test
+    fun countIsScopedToCurrentOwner() {
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER001")
+
+        repository.save(
+            Client(
+                id = "CLI-001",
+                ownerId = "OWNER001",
+                name = "Client One",
+                phone = "1111111111"
+            )
+        )
+
+        repository.save(
+            Client(
+                id = "CLI-002",
+                ownerId = "OWNER001",
+                name = "Client Two",
+                phone = "2222222222"
+            )
+        )
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER002")
+
+        repository.save(
+            Client(
+                id = "CLI-003",
+                ownerId = "OWNER002",
+                name = "Client Three",
+                phone = "3333333333"
+            )
+        )
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER001")
+
+        assertEquals(2, repository.count())
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER002")
+
+        assertEquals(1, repository.count())
+    }
+
+    @Test
+    fun deleteRemovesOnlyCurrentOwnersClient() {
+
+        val client = Client(
+            id = "CLI-001",
+            ownerId = "OWNER001",
+            name = "Owner One Client",
+            phone = "1111111111"
+        )
+
+        whenever(currentOwnerProvider.getOwnerId())
+            .thenReturn("OWNER001")
+
+        repository.save(client)
+        repository.delete("CLI-001")
+
+        assertNull(repository.findById("CLI-001"))
     }
 }
-
