@@ -1,29 +1,10 @@
-package com.clientledger.core.utils
-
-import java.security.SecureRandom
-
-object IdGenerator {
-
-    private const val ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    private val random = SecureRandom()
-
-    private fun generateId(prefix: String): String {
-        val timestamp = System.currentTimeMillis().toString(36).uppercase()
-        val randomTail = ALPHABET[random.nextInt(ALPHABET.length)]
-        return "$prefix-$timestamp$randomTail"
-    }
-
-    fun generateClientId(): String = generateId("CLI")
-
-    fun generateOrderId(): String = generateId("ORD")
-
-    fun generatePaymentId(): String = generateId("PAY")
-
-    fun generateInvoiceId(): String = generateId("INV")
-
-    fun generateBusinessExpenseId(): String = generateId("BUS-EXP")
-
-    fun generateOwnerId(): String = generateId("OWN")
-
-    fun generateOperationId(): String = generateId("OPR")
-}
+7. Client Summary Index
+Agreed structure: owners/{ownerId}/summary_client_index/{year}/{month}/clients/{clientId}
+Recommended fields:
+clientId
+ownerId
+yearMonth
+receivable
+advance
+status
+The index is derived data, not the detailed ledger source. It exists so a September drill-down can query matching client positions instead of scanning every client in application code. A for-loop may process returned matches, but the application should not loop through all 1,000+ clients.
