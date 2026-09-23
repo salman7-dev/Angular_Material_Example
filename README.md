@@ -41,7 +41,7 @@
 </td>
 <td>
 <div class="infoBox" id="duration">
-<div class="counter">6.140s</div>
+<div class="counter">5.353s</div>
 <p>duration</p>
 </div>
 </td>
@@ -88,7 +88,7 @@
 	at app//com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:4825)
 	at app//com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3772)
 	at app//com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3740)
-	at app//com.clientledger.core.controller.ClientControllerIntegrationTest.createsClientAndMaterializesEightMonths(ClientControllerIntegrationTest.kt:122)
+	at app//com.clientledger.core.controller.ClientControllerIntegrationTest.createsClientAndMaterializesEightMonths(ClientControllerIntegrationTest.kt:162)
 	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
 	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
 	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
@@ -108,7 +108,7 @@
 </thead>
 <tr>
 <td class="failures">createsClientAndMaterializesEightMonths()</td>
-<td class="failures">6.140s</td>
+<td class="failures">5.353s</td>
 <td class="failures">failed</td>
 </tr>
 </table>
@@ -126,13 +126,17 @@
  =========|_|==============|___/=/_/_/_/
  :: Spring Boot ::                (v3.2.0)
 
-2026-09-23T15:59:44.514+05:30  INFO 22504 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Starting ClientControllerIntegrationTest using Java 17.0.11 with PID 22504 (started by khans in D:\New folder\client-ledger-codespace-main\app)
-2026-09-23T15:59:44.531+05:30  INFO 22504 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : No active profile set, falling back to 1 default profile: &quot;default&quot;
-2026-09-23T15:59:54.402+05:30  INFO 22504 --- [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
-2026-09-23T15:59:54.403+05:30  INFO 22504 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
-2026-09-23T15:59:54.409+05:30  INFO 22504 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 3 ms
-2026-09-23T15:59:54.498+05:30  INFO 22504 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Started ClientControllerIntegrationTest in 12.009 seconds (process running for 20.199)
-2026-09-23T16:00:00.589+05:30 ERROR 22504 --- [    Test worker] c.c.c.exception.GlobalExceptionHandler   : Unexpected ledger error. clientId=N/A, message=java.lang.IllegalStateException: Bucket bucket_000 is full
+2026-09-23T16:07:46.168+05:30  INFO 22724 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Starting ClientControllerIntegrationTest using Java 17.0.11 with PID 22724 (started by khans in D:\New folder\client-ledger-codespace-main\app)
+2026-09-23T16:07:46.175+05:30  INFO 22724 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : No active profile set, falling back to 1 default profile: &quot;default&quot;
+2026-09-23T16:07:53.132+05:30  INFO 22724 --- [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-23T16:07:53.133+05:30  INFO 22724 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-23T16:07:53.140+05:30  INFO 22724 --- [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 2 ms
+2026-09-23T16:07:53.192+05:30  INFO 22724 --- [    Test worker] c.c.c.c.ClientControllerIntegrationTest  : Started ClientControllerIntegrationTest in 8.039 seconds (process running for 12.471)
+CLIENT COUNT BEFORE CLEANUP = 1
+HISTORY BUCKETS BEFORE CLEANUP = [bucket_000]
+CLIENT COUNT AFTER CLEANUP = 0
+HISTORY BUCKETS AFTER CLEANUP = [bucket_000]
+2026-09-23T16:07:58.392+05:30 ERROR 22724 --- [    Test worker] c.c.c.exception.GlobalExceptionHandler   : Unexpected ledger error. clientId=N/A, message=java.lang.IllegalStateException: Bucket bucket_000 is full
 
 java.util.concurrent.ExecutionException: java.lang.IllegalStateException: Bucket bucket_000 is full
 	at com.google.common.util.concurrent.AbstractFuture.getDoneValue(AbstractFuture.java:588) ~[guava-31.1-jre.jar:na]
@@ -181,7 +185,7 @@ java.util.concurrent.ExecutionException: java.lang.IllegalStateException: Bucket
 	at org.springframework.test.web.servlet.setup.MockMvcFilterDecorator.doFilter(MockMvcFilterDecorator.java:151) ~[spring-test-6.1.1.jar:6.1.1]
 	at org.springframework.mock.web.MockFilterChain.doFilter(MockFilterChain.java:132) ~[spring-test-6.1.1.jar:6.1.1]
 	at org.springframework.test.web.servlet.MockMvc.perform(MockMvc.java:201) ~[spring-test-6.1.1.jar:6.1.1]
-	at com.clientledger.core.controller.ClientControllerIntegrationTest.createsClientAndMaterializesEightMonths(ClientControllerIntegrationTest.kt:111) ~[test/:na]
+	at com.clientledger.core.controller.ClientControllerIntegrationTest.createsClientAndMaterializesEightMonths(ClientControllerIntegrationTest.kt:151) ~[test/:na]
 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[na:na]
 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77) ~[na:na]
 	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[na:na]
@@ -329,7 +333,7 @@ MockHttpServletResponse:
 <input id="line-wrapping-toggle" type="checkbox" autocomplete="off"/>
 </label>
 </div>Generated by 
-<a href="http://www.gradle.org">Gradle 8.5</a> at 23-Sep-2026, 4:00:01 pm</p>
+<a href="http://www.gradle.org">Gradle 8.5</a> at 23-Sep-2026, 4:07:59 pm</p>
 </div>
 </div>
 </body>
