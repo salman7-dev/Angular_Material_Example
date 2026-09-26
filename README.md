@@ -1,24 +1,14 @@
-getClientsThroughHttpReturnsFirstPage()
-org.opentest4j.AssertionFailedError: expected: <Client 001> but was: <HTTP Client>
-	at app//org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
-	at app//org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
-	at app//org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
-	at app//org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
-	at app//org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
-	at app//org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1141)
-	at app//com.clientledger.core.integration.client.ClientControllerIntegrationTest.getClientsThroughHttpReturnsFirstPage(ClientControllerIntegrationTest.kt:206)
-	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
-	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
-	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
-getClientsThroughHttpReturnsNextPageUsingCursor()
-org.opentest4j.AssertionFailedError: expected: <1> but was: <2>
-	at app//org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
-	at app//org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
-	at app//org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
-	at app//org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
-	at app//org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:145)
-	at app//org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:527)
-	at app//com.clientledger.core.integration.client.ClientControllerIntegrationTest.getClientsThroughHttpReturnsNextPageUsingCursor(ClientControllerIntegrationTest.kt:286)
-	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
-	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
-	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+client-ledger:
+  history:
+    editable-months: 2
+    bucket-capacity: 100
+
+  summary:
+    index-bucket-capacity: 300
+
+  firestore:
+    project-id: "demo-no-project"
+
+  auth:
+    enabled: true
+    local-owner-id: "local-owner"
