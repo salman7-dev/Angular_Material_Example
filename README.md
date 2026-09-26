@@ -1,10 +1,42 @@
-7. Client Summary Index
-Agreed structure: owners/{ownerId}/summary_client_index/{year}/{month}/clients/{clientId}
-Recommended fields:
-clientId
-ownerId
-yearMonth
-receivable
-advance
-status
-The index is derived data, not the detailed ledger source. It exists so a September drill-down can query matching client positions instead of scanning every client in application code. A for-loop may process returned matches, but the application should not loop through all 1,000+ clients.
+package com.clientledger.core.config
+
+import com.google.cloud.NoCredentials
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.FirestoreOptions
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+
+@Configuration
+class FireStoreConfig(
+    private val properties: ClientLedgerProperties
+) {
+
+    @Bean
+    fun firestore(): Firestore {
+
+        println(
+            """
+        ================= FIRESTORE CONFIG =================
+        projectId     = ${properties.firestore.projectId}
+        host          = ${properties.firestore.host}
+        emulatorHost  = ${properties.firestore.emulatorHost}
+        =====================================================
+        """.trimIndent()
+        )
+
+        val builder = FirestoreOptions.newBuilder()
+            .setProjectId(properties.firestore.projectId)
+            .setCredentials(NoCredentials.getInstance())
+
+        if (properties.firestore.host.isNotBlank()) {
+            builder.setHost(properties.firestore.host)
+        }
+
+        if (properties.firestore.emulatorHost.isNotBlank()) {
+            builder.setEmulatorHost(properties.firestore.emulatorHost)
+        }
+
+        return builder.build().service
+    }
+}
+
