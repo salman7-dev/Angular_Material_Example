@@ -1,341 +1,308 @@
 package com.clientledger.core.integration.client
 
+import com.clientledger.core.config.ClientLedgerProperties
 import com.clientledger.core.domain.Client
+import com.clientledger.core.domain.ClientType
 import com.clientledger.core.repository.client.ClientRepository
-import com.fasterxml.jackson.databind.ObjectMapper
-import org.junit.jupiter.api.Assertions.*
+import com.clientledger.core.repository.history.ClientHistoryBucketRepository
+import com.clientledger.core.repository.history.ClientHistoryRepository
+import com.clientledger.core.repository.summary.GlobalSummaryRepository
+import com.clientledger.core.repository.summary.SummaryClientIndexBucketRepository
+import com.clientledger.core.repository.summary.SummaryClientIndexRepository
+import com.clientledger.core.service.client.ClientService
+import com.clientledger.core.transaction.FirestoreTransactionExecutor
+import com.google.cloud.NoCredentials
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.FirestoreOptions
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.http.MediaType
 import org.springframework.test.context.ActiveProfiles
-import org.springframework.test.context.TestPropertySource
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
-import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
-import org.springframework.test.web.servlet.result.MockMvcResultHandlers.print
-
-@SpringBootTest
-@AutoConfigureMockMvc
+import java.time.Clock
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
 @ActiveProfiles("test")
-@TestPropertySource(
-    properties = [
-        "client-ledger.auth.enabled=false",
-        "client-ledger.auth.local-owner-id=integration-owner"
-    ]
-)
-class ClientControllerIntegrationTest {
+@SpringBootTest
+class ClientCreateIntegrationTest {
 
     @Autowired
-    private lateinit var mockMvc: MockMvc
+    private lateinit var properties: ClientLedgerProperties
 
-    @Autowired
-    private lateinit var objectMapper: ObjectMapper
+    companion object {
 
-    @Autowired
-    private lateinit var clientRepository: ClientRepository
+        private lateinit var firestore: Firestore
 
-    private val ownerId = "integration-owner"
+        @JvmStatic
+        @BeforeAll
+        fun setup() {
+            firestore = FirestoreOptions.newBuilder()
+                .setProjectId("client-ledger-dashboard")
+                .setHost("127.0.0.1:8080")
+                .setEmulatorHost("127.0.0.1:8080")
+                .setCredentials(NoCredentials.getInstance())
+                .build()
+                .service
+        }
 
-
+        @JvmStatic
+        @AfterAll
+        fun cleanup() {
+            firestore.close()
+        }
+    }
 
     @Test
-    fun createClientThroughHttpReturnsCreatedClient() {
+    fun createClientCreatesConsistentDataAcrossAllCollections() {
 
-        val request =
+        val clientService = createClientService()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        val client = clientService.create(
             Client(
-                name = "HTTP Client",
+                ownerId = ownerId,
+                name = "Integration Client",
                 phone = "9876543210",
                 initialOpeningBalance = 10000
             )
-
-        val result =
-            mockMvc.perform(
-                post("/api/clients")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        objectMapper.writeValueAsString(request)
-                    )
-            )
-                .andDo { result ->
-                    println("HTTP STATUS = ${result.response.status}")
-                    println("HTTP BODY = ${result.response.contentAsString}")
-                }
-                .andExpect(status().isCreated)
-                .andReturn()
-
-        val response =
-            objectMapper.readValue(
-                result.response.contentAsString,
-                Client::class.java
-            )
-
-        assertTrue(
-            response.id.isNotBlank()
         )
 
-        assertEquals(
-            ownerId,
-            response.ownerId
-        )
+        assertTrue(client.id.startsWith("CLI-"))
+        assertEquals(ownerId, client.ownerId)
+        assertEquals(10000, client.initialOpeningBalance)
+        assertEquals(10000, client.latestAmount)
+        assertEquals(ClientType.RECEIVABLE, client.type)
+        assertTrue(client.bucketId.isNotBlank())
 
-        assertEquals(
-            "HTTP Client",
-            response.name
-        )
+        verifyClient(ownerId, client)
+        verifyHistory(ownerId, client)
+        verifyGlobalSummary(ownerId)
+        verifySummaryIndex(ownerId, client)
+        verifyHistoryBucket(ownerId, client)
+    }
 
-        assertEquals(
-            "9876543210",
-            response.phone
-        )
+    private fun verifyClient(
+        ownerId: String,
+        client: Client
+    ) {
 
-        assertEquals(
-            10000,
-            response.initialOpeningBalance
-        )
+        val repository = ClientRepository(firestore)
 
-        val storedClient =
-            clientRepository.findById(
-                ownerId = ownerId,
-                clientId = response.id
-            )
+        val storedClient = repository.findById(
+            ownerId = ownerId,
+            clientId = client.id
+        )
 
         assertNotNull(storedClient)
+        assertEquals(client.id, storedClient!!.id)
+        assertEquals(ownerId, storedClient.ownerId)
+        assertEquals("Integration Client", storedClient.name)
+        assertEquals(10000, storedClient.initialOpeningBalance)
+        assertEquals(10000, storedClient.latestAmount)
+        assertEquals(ClientType.RECEIVABLE, storedClient.type)
+        assertEquals(client.bucketId, storedClient.bucketId)
     }
 
-    @Test
-    fun getClientThroughHttpReturnsClient() {
+    private fun verifyHistory(
+        ownerId: String,
+        client: Client
+    ) {
 
-        val createdClient =
-            createClient(
-                name = "GET Client",
-                phone = "9000000001"
+        val repository = ClientHistoryRepository(firestore)
+
+        val expectedMonths = expectedMonths()
+
+        expectedMonths.forEach { yearMonth ->
+
+            val history = repository.find(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = client.bucketId,
+                clientId = client.id
             )
 
-        val result =
-            mockMvc.perform(
-                get(
-                    "/api/clients/${createdClient.id}"
-                )
-            )
-                .andExpect(
-                    status().isOk
-                )
-                .andReturn()
+            assertNotNull(history)
 
-        val response =
-            objectMapper.readValue(
-                result.response.contentAsString,
-                Client::class.java
-            )
+            assertEquals(client.id, history!!.clientId)
+            assertEquals(ownerId, history.ownerId)
+            assertEquals(yearMonth, history.yearMonth)
 
-        assertEquals(
-            createdClient.id,
-            response.id
-        )
+            assertEquals(10000, history.openingBalance)
+            assertEquals(10000, history.closingBalance)
+            assertEquals(10000, history.receivable)
+            assertEquals(0, history.advance)
+            assertEquals(ClientType.RECEIVABLE, history.status)
 
-        assertEquals(
-            ownerId,
-            response.ownerId
-        )
-
-        assertEquals(
-            "GET Client",
-            response.name
-        )
+            assertEquals(0, history.totalInvoiceAmount)
+            assertEquals(0, history.totalPayments)
+            assertEquals(0, history.totalDiscount)
+            assertEquals(0, history.totalExpenses)
+            assertEquals(0, history.totalGstAmount)
+        }
     }
 
+    private fun verifyGlobalSummary(
+        ownerId: String
+    ) {
 
-    @Test
-    fun getUnknownClientThroughHttpReturnsNotFound() {
+        val repository = GlobalSummaryRepository(firestore)
 
-        mockMvc.perform(
-            get("/api/clients/CLI-NOT-FOUND")
-        )
-            .andDo(print())
-            .andExpect(
-                status().isNotFound
+        val expectedMonths = expectedMonths()
+
+        expectedMonths.forEach { yearMonth ->
+
+            val summary = repository.find(
+                ownerId = ownerId,
+                yearMonth = yearMonth
             )
+
+            assertNotNull(summary)
+
+            assertEquals(ownerId, summary!!.ownerId)
+            assertEquals(yearMonth, summary.yearMonth)
+
+            assertEquals(1, summary.receivableClientCount)
+            assertEquals(0, summary.advanceClientCount)
+            assertEquals(0, summary.settledClientCount)
+
+            assertEquals(10000, summary.totalReceivableAmount)
+            assertEquals(0, summary.totalAdvanceAmount)
+
+            assertEquals(0, summary.cashFlow)
+            assertEquals(0, summary.netProfit)
+
+            assertEquals(0, summary.totalInvoiceAmount)
+            assertEquals(0, summary.totalInvoiceAmountWithGst)
+            assertEquals(0, summary.totalGstAmount)
+            assertEquals(0, summary.totalExpenseAmount)
+            assertEquals(0, summary.totalPaymentAmount)
+        }
     }
 
+    private fun verifySummaryIndex(
+        ownerId: String,
+        client: Client
+    ) {
 
+        val repository = SummaryClientIndexRepository(firestore)
 
-    @Test
-    fun getClientsThroughHttpReturnsFirstPage() {
+        val expectedMonths = expectedMonths()
 
-        createClient(
-            name = "Client 001",
-            phone = "9000000001"
-        )
+        expectedMonths.forEach { yearMonth ->
 
-        createClient(
-            name = "Client 002",
-            phone = "9000000002"
-        )
-
-        createClient(
-            name = "Client 003",
-            phone = "9000000003"
-        )
-
-        val result =
-            mockMvc.perform(
-                get("/api/clients")
-                    .param("size", "2")
-            )
-                .andExpect(
-                    status().isOk
-                )
-                .andReturn()
-
-        val json =
-            objectMapper.readTree(
-                result.response.contentAsString
+            val index = repository.find(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                bucketId = "bucket_000",
+                clientId = client.id
             )
 
-        val content =
-            json.get("content")
+            assertNotNull(index)
 
-        assertEquals(
-            2,
-            content.size()
-        )
-
-        assertEquals(
-            "Client 001",
-            content[0].get("name").asText()
-        )
-
-        assertEquals(
-            "Client 002",
-            content[1].get("name").asText()
-        )
-
-        assertTrue(
-            json.get("hasNext").asBoolean()
-        )
-
-        assertTrue(
-            json.get("nextCursor").asText().isNotBlank()
-        )
+            assertEquals(client.id, index!!.clientId)
+            assertEquals(10000, index.amount)
+            assertEquals(ClientType.RECEIVABLE, index.status)
+        }
     }
 
-    @Test
-    fun getClientsThroughHttpReturnsNextPageUsingCursor() {
+    private fun verifyHistoryBucket(
+        ownerId: String,
+        client: Client
+    ) {
 
-        createClient(
-            name = "Client 001",
-            phone = "9000000001"
+        val repository = ClientHistoryBucketRepository(
+            firestore = firestore,
+            properties = properties
         )
 
-        createClient(
-            name = "Client 002",
-            phone = "9000000002"
+        val bucket = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            bucketId = client.bucketId
         )
 
-        createClient(
-            name = "Client 003",
-            phone = "9000000003"
-        )
+        assertNotNull(bucket)
 
-        val firstPageResult =
-            mockMvc.perform(
-                get("/api/clients")
-                    .param("size", "2")
-            )
-                .andExpect(
-                    status().isOk
-                )
-                .andReturn()
+        assertEquals(100, bucket!!.capacity)
+        assertEquals(1, bucket.size)
+    }
 
-        val firstPageJson =
-            objectMapper.readTree(
-                firstPageResult.response.contentAsString
-            )
+    private fun createClientService(): ClientService {
 
-        val cursor =
-            firstPageJson
-                .get("nextCursor")
-                .asText()
+        val properties = properties
 
-        assertTrue(
-            cursor.isNotBlank()
-        )
+        val transactionExecutor =
+            FirestoreTransactionExecutor(firestore)
 
-        val secondPageResult =
-            mockMvc.perform(
-                get("/api/clients")
-                    .param("size", "2")
-                    .param("cursor", cursor)
-            )
-                .andExpect(
-                    status().isOk
-                )
-                .andReturn()
+        val clientRepository =
+            ClientRepository(firestore)
 
-        val secondPageJson =
-            objectMapper.readTree(
-                secondPageResult.response.contentAsString
+        val historyBucketRepository =
+            ClientHistoryBucketRepository(
+                firestore = firestore,
+                properties = properties
             )
 
-        val content =
-            secondPageJson.get("content")
+        val historyRepository =
+            ClientHistoryRepository(firestore)
 
-        assertEquals(
-            1,
-            content.size()
+        val globalSummaryRepository =
+            GlobalSummaryRepository(firestore)
+
+        val summaryIndexBucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val clock = Clock.fixed(
+            Instant.parse("2026-09-24T10:00:00Z"),
+            ZoneId.of("UTC")
         )
 
-        assertEquals(
-            "Client 003",
-            content[0].get("name").asText()
-        )
-
-        assertTrue(
-            !secondPageJson
-                .get("hasNext")
-                .asBoolean()
-        )
-
-        assertTrue(
-            secondPageJson
-                .get("nextCursor")
-                .isNull
+        return ClientService(
+            firestore = firestore,
+            transactionExecutor = transactionExecutor,
+            clientRepository = clientRepository,
+            historyBucketRepository = historyBucketRepository,
+            historyRepository = historyRepository,
+            globalSummaryRepository = globalSummaryRepository,
+            summaryIndexBucketRepository = summaryIndexBucketRepository,
+            summaryIndexRepository = summaryIndexRepository,
+            properties = properties,
+            clock = clock
         )
     }
 
-    private fun createClient(
-        name: String,
-        phone: String
-    ): Client {
 
-        val request =
-            Client(
-                name = name,
-                phone = phone
+    private fun expectedMonths(): List<String> {
+
+        val currentMonth = YearMonth.now(
+            Clock.fixed(
+                Instant.parse("2026-09-24T10:00:00Z"),
+                ZoneId.of("UTC")
             )
-
-        val result =
-            mockMvc.perform(
-                post("/api/clients")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        objectMapper.writeValueAsString(request)
-                    )
-            )
-                .andDo { result ->
-                    println("HTTP STATUS = ${result.response.status}")
-                    println("HTTP BODY = ${result.response.contentAsString}")
-                }
-                .andExpect(status().isCreated)
-                .andReturn()
-
-        return objectMapper.readValue(
-            result.response.contentAsString,
-            Client::class.java
         )
+
+        val editableMonths =
+            properties.history.editableMonths
+
+        return (editableMonths - 1 downTo 0)
+            .map { offset ->
+                currentMonth.minusMonths(offset.toLong()).toString()
+            }
     }
+
+
 }
 
