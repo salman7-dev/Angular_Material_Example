@@ -30,3 +30,23 @@ PS D:\New folder\client-ledger-codespace-main>
 
 
 
+protectedApiRejectsInvalidBearerToken()
+java.lang.AssertionError: Status expected:<401> but was:<200>
+	at org.springframework.test.util.AssertionErrors.fail(AssertionErrors.java:59)
+	at org.springframework.test.util.AssertionErrors.assertEquals(AssertionErrors.java:122)
+	at org.springframework.test.web.servlet.result.StatusResultMatchers.lambda$matcher$9(StatusResultMatchers.java:637)
+	at org.springframework.test.web.servlet.MockMvc$1.andExpect(MockMvc.java:214)
+	at com.clientledger.core.integration.security.FirebaseSecurityIntegrationTest.protectedApiRejectsInvalidBearerToken(FirebaseSecurityIntegrationTest.kt:55)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+protectedApiRejectsRequestWithoutBearerToken()
+java.lang.AssertionError: Status expected:<401> but was:<200>
+	at org.springframework.test.util.AssertionErrors.fail(AssertionErrors.java:59)
+	at org.springframework.test.util.AssertionErrors.assertEquals(AssertionErrors.java:122)
+	at org.springframework.test.web.servlet.result.StatusResultMatchers.lambda$matcher$9(StatusResultMatchers.java:637)
+	at org.springframework.test.web.servlet.MockMvc$1.andExpect(MockMvc.java:214)
+	at com.clientledger.core.integration.security.FirebaseSecurityIntegrationTest.protectedApiRejectsRequestWithoutBearerToken(FirebaseSecurityIntegrationTest.kt:35)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
