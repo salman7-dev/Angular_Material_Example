@@ -1,321 +1,339 @@
-package com.clientledger.core.integration.client
+package com.clientledger.core.service.client
 
+import com.clientledger.core.config.ClientLedgerProperties
 import com.clientledger.core.domain.Client
-import com.clientledger.core.integration.security.FirebaseAuthEmulatorClient
-
+import com.clientledger.core.domain.ClientMonthlyHistory
+import com.clientledger.core.domain.ClientType
+import com.clientledger.core.domain.GlobalSummary
+import com.clientledger.core.domain.SummaryClientIndex
+import com.clientledger.core.pagination.PageResult
 import com.clientledger.core.repository.client.ClientRepository
-import com.fasterxml.jackson.databind.ObjectMapper
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.http.MediaType
-import org.springframework.test.context.ActiveProfiles
-import org.springframework.test.web.servlet.MockMvc
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
-import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
+import com.clientledger.core.repository.history.ClientHistoryBucketRepository
+import com.clientledger.core.repository.history.ClientHistoryRepository
+import com.clientledger.core.repository.summary.GlobalSummaryRepository
+import com.clientledger.core.repository.summary.GlobalSummaryUpdatePlan
+import com.clientledger.core.repository.summary.SummaryClientIndexBucketRepository
+import com.clientledger.core.repository.summary.SummaryClientIndexRepository
+import com.clientledger.core.transaction.FirestoreTransactionExecutor
+import com.clientledger.core.utils.IdGenerator
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.Transaction
+import org.springframework.stereotype.Service
+import java.time.Clock
+import java.time.YearMonth
+import kotlin.math.abs
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-class ClientControllerIntegrationTest {
+@Service
+class ClientService(
+    private val firestore: Firestore,
+    private val transactionExecutor: FirestoreTransactionExecutor,
+    private val clientRepository: ClientRepository,
+    private val historyBucketRepository: ClientHistoryBucketRepository,
+    private val historyRepository: ClientHistoryRepository,
+    private val globalSummaryRepository: GlobalSummaryRepository,
+    private val summaryIndexBucketRepository: SummaryClientIndexBucketRepository,
+    private val summaryIndexRepository: SummaryClientIndexRepository,
+    private val properties: ClientLedgerProperties,
+    private val clock: Clock
+) {
 
-    @Autowired
-    private lateinit var mockMvc: MockMvc
+    fun create(client: Client): Client {
 
-    @Autowired
-    private lateinit var objectMapper: ObjectMapper
+        require(client.ownerId.isNotBlank()) {
+            "ownerId must not be blank"
+        }
 
-    @Autowired
-    private lateinit var clientRepository: ClientRepository
+        require(client.name.isNotBlank()) {
+            "client name must not be blank"
+        }
 
-    private val firebaseAuthEmulatorClient = FirebaseAuthEmulatorClient()
+        require(client.phone.isNotBlank()) {
+            "client phone must not be blank"
+        }
 
-    private lateinit var idToken: String
-    private lateinit var ownerId: String
+        val clientId = if (client.id.isBlank()) {
+            IdGenerator.generateClientId()
+        } else {
+            client.id
+        }
 
-    @BeforeEach
-    fun setUp() {
+        val currentYearMonth = YearMonth.now(clock)
 
-        val authResult =
-            firebaseAuthEmulatorClient
-                .createUserAndGetIdToken()
+        val clientWithId = client.copy(
+            id = clientId,
+            latestAmount = client.initialOpeningBalance
+        )
 
-        idToken =
-            authResult.idToken
+        return transactionExecutor.execute { transaction ->
 
-        ownerId =
-            authResult.localId
-    }
-
-    @Test
-    fun createClientThroughHttpReturnsCreatedClient() {
-
-        val request =
-            Client(
-                name = "HTTP Client",
-                phone = "9876543210",
-                initialOpeningBalance = 10000
-            )
-
-        val result =
-            mockMvc.perform(
-                post("/api/clients")
-                    .header(
-                        "Authorization",
-                        "Bearer $idToken"
-                    )
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        objectMapper.writeValueAsString(request)
-                    )
-            )
-                .andExpect(status().isCreated)
-                .andReturn()
-
-        val response =
-            objectMapper.readValue(
-                result.response.contentAsString,
-                Client::class.java
-            )
-
-        assertTrue(response.id.isNotBlank())
-        assertEquals(ownerId, response.ownerId)
-        assertEquals("HTTP Client", response.name)
-        assertEquals("9876543210", response.phone)
-        assertEquals(10000, response.initialOpeningBalance)
-
-        val storedClient =
-            clientRepository.findById(
-                ownerId = ownerId,
-                clientId = response.id
-            )
-
-        assertNotNull(storedClient)
-    }
-
-    @Test
-    fun getClientThroughHttpReturnsClient() {
-
-        val createdClient =
-            createClient(
-                name = "GET Client",
-                phone = "9000000001"
-            )
-
-        val result =
-            mockMvc.perform(
-                get(
-                    "/api/clients/${createdClient.id}"
+            require(
+                !clientRepository.existsInTransaction(
+                    transaction = transaction,
+                    ownerId = clientWithId.ownerId,
+                    clientId = clientId
                 )
-                    .header(
-                        "Authorization",
-                        "Bearer $idToken"
-                    )
-            )
-                .andExpect(status().isOk)
-                .andReturn()
+            ) {
+                "Client already exists: $clientId"
+            }
 
-        val response =
-            objectMapper.readValue(
-                result.response.contentAsString,
-                Client::class.java
-            )
+            val materializedMonths =
+                materializedMonths(currentYearMonth)
 
-        assertEquals(createdClient.id, response.id)
-        assertEquals(ownerId, response.ownerId)
-        assertEquals("GET Client", response.name)
-    }
-
-    @Test
-    fun getUnknownClientThroughHttpReturnsNotFound() {
-
-        mockMvc.perform(
-            get("/api/clients/CLI-NOT-FOUND")
-                .header(
-                    "Authorization",
-                    "Bearer $idToken"
+            val summaryStatus =
+                statusFromOpeningBalance(
+                    clientWithId.initialOpeningBalance
                 )
-        )
-            .andExpect(status().isNotFound)
+
+            /*
+             * READ / PLAN PHASE
+             *
+             * All transaction reads happen before any writes.
+             */
+
+            val historyBucketPlan =
+                historyBucketRepository.planBucketAllocationInTransaction(
+                    transaction = transaction,
+                    ownerId = clientWithId.ownerId,
+                    yearMonth = currentYearMonth.toString()
+                )
+
+            val globalSummaryPlans =
+                materializedMonths.map { yearMonth ->
+
+                    globalSummaryRepository.planDeltaInTransaction(
+                        transaction = transaction,
+                        ownerId = clientWithId.ownerId,
+                        yearMonth = yearMonth.toString(),
+                        delta = globalSummaryDelta(
+                            client = clientWithId,
+                            yearMonth = yearMonth.toString()
+                        )
+                    )
+                }
+
+            /*
+             * Summary index bucket planning is done for every
+             * materialized month.
+             */
+            val summaryIndexPlans =
+                materializedMonths.map { yearMonth ->
+
+                    summaryIndexBucketRepository
+                        .planBucketAllocationInTransaction(
+                            transaction = transaction,
+                            ownerId = clientWithId.ownerId,
+                            yearMonth = yearMonth.toString(),
+                            status = summaryStatus
+                        )
+                }
+
+            /*
+             * WRITE / APPLY PHASE
+             */
+
+            historyBucketRepository.applyBucketAllocationInTransaction(
+                transaction = transaction,
+                plan = historyBucketPlan
+            )
+
+            createMonthlyHistories(
+                transaction = transaction,
+                client = clientWithId,
+                materializedMonths = materializedMonths,
+                bucketId = historyBucketPlan.bucketId
+            )
+
+            globalSummaryPlans.forEach { plan ->
+
+                globalSummaryRepository.applyDeltaPlanInTransaction(
+                    transaction = transaction,
+                    plan = plan
+                )
+            }
+
+            summaryIndexPlans.forEachIndexed { index, plan ->
+
+                val yearMonth = materializedMonths[index]
+
+                summaryIndexBucketRepository
+                    .applyBucketAllocationInTransaction(
+                        transaction = transaction,
+                        plan = plan
+                    )
+
+                summaryIndexRepository.insertInTransaction(
+                    transaction = transaction,
+                    ownerId = clientWithId.ownerId,
+                    yearMonth = yearMonth.toString(),
+                    bucketId = plan.bucketId,
+                    index = SummaryClientIndex(
+                        clientId = clientWithId.id,
+                        amount = abs(
+                            clientWithId.initialOpeningBalance
+                        ),
+                        status = summaryStatus
+                    )
+                )
+            }
+
+            val finalClient =
+                clientWithId.copy(
+                    bucketId = historyBucketPlan.bucketId,
+                    type = summaryStatus
+                )
+
+            clientRepository.createInTransaction(
+                transaction = transaction,
+                client = finalClient
+            )
+        }
     }
 
-    @Test
-    fun getClientsThroughHttpReturnsFirstPage() {
+    private fun materializedMonths(
+        currentMonth: YearMonth
+    ): List<YearMonth> {
 
-        createClient(
-            name = "Client 001",
-            phone = "9000000001"
-        )
+        val editableMonths =
+            properties.history.editableMonths
 
-        createClient(
-            name = "Client 002",
-            phone = "9000000002"
-        )
+        require(editableMonths > 0) {
+            "history.editable-months must be greater than zero"
+        }
 
-        createClient(
-            name = "Client 003",
-            phone = "9000000003"
-        )
+        return (editableMonths - 1 downTo 0)
+            .map { offset ->
+                currentMonth.minusMonths(offset.toLong())
+            }
+    }
 
-        val result =
-            mockMvc.perform(
-                get("/api/clients")
-                    .param("size", "2")
-                    .header(
-                        "Authorization",
-                        "Bearer $idToken"
+    private fun createMonthlyHistories(
+        transaction: Transaction,
+        client: Client,
+        materializedMonths: List<YearMonth>,
+        bucketId: String
+    ) {
+
+        materializedMonths.forEach { yearMonth ->
+
+            historyRepository.saveInTransaction(
+                transaction = transaction,
+                history = ClientMonthlyHistory(
+                    clientId = client.id,
+                    ownerId = client.ownerId,
+                    yearMonth = yearMonth.toString(),
+                    openingBalance =
+                    client.initialOpeningBalance,
+                    closingBalance =
+                    client.initialOpeningBalance,
+                    receivable =
+                    if (client.initialOpeningBalance > 0) {
+                        client.initialOpeningBalance
+                    } else {
+                        0
+                    },
+                    advance =
+                    if (client.initialOpeningBalance < 0) {
+                        abs(client.initialOpeningBalance)
+                    } else {
+                        0
+                    },
+                    status =
+                    statusFromOpeningBalance(
+                        client.initialOpeningBalance
                     )
+                ),
+                bucketId = bucketId
             )
-                .andExpect(status().isOk)
-                .andReturn()
+        }
+    }
 
-        val json =
-            objectMapper.readTree(
-                result.response.contentAsString
-            )
+    private fun globalSummaryDelta(
+        client: Client,
+        yearMonth: String
+    ): GlobalSummary {
 
-        val content =
-            json.get("content")
+        val openingBalance =
+            client.initialOpeningBalance
 
-        assertEquals(2, content.size())
+        return GlobalSummary(
+            ownerId = client.ownerId,
+            yearMonth = yearMonth,
 
-        assertEquals(
-            "Client 001",
-            content[0].get("name").asText()
-        )
+            receivableClientCount =
+            if (openingBalance > 0) 1 else 0,
 
-        assertEquals(
-            "Client 002",
-            content[1].get("name").asText()
-        )
+            advanceClientCount =
+            if (openingBalance < 0) 1 else 0,
 
-        assertTrue(
-            json.get("hasNext").asBoolean()
-        )
+            settledClientCount =
+            if (openingBalance == 0L) 1 else 0,
 
-        assertTrue(
-            json.get("nextCursor").asText().isNotBlank()
+            totalReceivableAmount =
+            if (openingBalance > 0) {
+                openingBalance
+            } else {
+                0
+            },
+
+            totalAdvanceAmount =
+            if (openingBalance < 0) {
+                abs(openingBalance)
+            } else {
+                0
+            }
         )
     }
 
-    @Test
-    fun getClientsThroughHttpReturnsNextPageUsingCursor() {
+    private fun statusFromOpeningBalance(
+        openingBalance: Long
+    ): ClientType {
 
-        createClient(
-            name = "Client 001",
-            phone = "9000000001"
-        )
+        return when {
 
-        createClient(
-            name = "Client 002",
-            phone = "9000000002"
-        )
+            openingBalance > 0 ->
+                ClientType.RECEIVABLE
 
-        createClient(
-            name = "Client 003",
-            phone = "9000000003"
-        )
+            openingBalance < 0 ->
+                ClientType.ADVANCE
 
-        val firstPageResult =
-            mockMvc.perform(
-                get("/api/clients")
-                    .param("size", "2")
-                    .header(
-                        "Authorization",
-                        "Bearer $idToken"
-                    )
-            )
-                .andExpect(status().isOk)
-                .andReturn()
+            else ->
+                ClientType.SETTLED
+        }
+    }
 
-        val firstPageJson =
-            objectMapper.readTree(
-                firstPageResult.response.contentAsString
-            )
+    fun findById(
+        ownerId: String,
+        clientId: String
+    ): Client? {
 
-        val cursor =
-            firstPageJson
-                .get("nextCursor")
-                .asText()
+        require(ownerId.isNotBlank()) {
+            "ownerId must not be blank"
+        }
 
-        assertTrue(cursor.isNotBlank())
+        require(clientId.isNotBlank()) {
+            "clientId must not be blank"
+        }
 
-        val secondPageResult =
-            mockMvc.perform(
-                get("/api/clients")
-                    .param("size", "2")
-                    .param("cursor", cursor)
-                    .header(
-                        "Authorization",
-                        "Bearer $idToken"
-                    )
-            )
-                .andExpect(status().isOk)
-                .andReturn()
-
-        val secondPageJson =
-            objectMapper.readTree(
-                secondPageResult.response.contentAsString
-            )
-
-        val content =
-            secondPageJson.get("content")
-
-        assertEquals(1, content.size())
-
-        assertEquals(
-            "Client 003",
-            content[0].get("name").asText()
-        )
-
-        assertTrue(
-            !secondPageJson
-                .get("hasNext")
-                .asBoolean()
-        )
-
-        assertTrue(
-            secondPageJson
-                .get("nextCursor")
-                .isNull
+        return clientRepository.findById(
+            ownerId = ownerId,
+            clientId = clientId
         )
     }
 
-    private fun createClient(
-        name: String,
-        phone: String
-    ): Client {
+    fun findPage(
+        ownerId: String,
+        size: Int,
+        cursor: String?
+    ): PageResult<Client> {
 
-        val request =
-            Client(
-                name = name,
-                phone = phone
-            )
+        require(ownerId.isNotBlank()) {
+            "ownerId must not be blank"
+        }
 
-        val result =
-            mockMvc.perform(
-                post("/api/clients")
-                    .header(
-                        "Authorization",
-                        "Bearer $idToken"
-                    )
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(
-                        objectMapper.writeValueAsString(request)
-                    )
-            )
-                .andExpect(status().isCreated)
-                .andReturn()
-
-        return objectMapper.readValue(
-            result.response.contentAsString,
-            Client::class.java
+        return clientRepository.findPage(
+            ownerId = ownerId,
+            size = size,
+            cursor = cursor
         )
     }
 }
