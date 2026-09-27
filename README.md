@@ -1,98 +1,25 @@
-package com.clientledger.core.auth
+PS D:\New folder\client-ledger-codespace-main> .\gradlew.bat :app:test
+Reusing configuration cache.
 
-import com.clientledger.core.config.ClientLedgerProperties
-import jakarta.servlet.FilterChain
-import jakarta.servlet.http.HttpServletRequest
-import jakarta.servlet.http.HttpServletResponse
-import org.slf4j.LoggerFactory
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
-import org.springframework.security.core.authority.AuthorityUtils
-import org.springframework.security.core.context.SecurityContextHolder
-import org.springframework.stereotype.Component
-import org.springframework.web.filter.OncePerRequestFilter
+> Task :app:compileTestKotlin
+e: file:///D:/New%20folder/client-ledger-codespace-main/app/src/test/kotlin/com/clientledger/core/auth/FirebaseAuthenticationFilterTest.kt:137:25 Argument type mismatch: actual type is 'kotlin.String', but 'com.clientledger.core.auth.AuthenticatedUser!' was expected.
 
-@Component
-class FirebaseAuthenticationFilter(
-    private val firebaseTokenService: FirebaseTokenService,
-    private val currentOwnerContext: CurrentOwnerContext,
-    private val properties: ClientLedgerProperties
-) : OncePerRequestFilter() {
+> Task :app:compileTestKotlin FAILED
 
-    private val logger =
-        LoggerFactory.getLogger(FirebaseAuthenticationFilter::class.java)
+FAILURE: Build failed with an exception.
 
-    override fun doFilterInternal(
-        request: HttpServletRequest,
-        response: HttpServletResponse,
-        filterChain: FilterChain
-    ) {
-        if (!properties.auth.enabled) {
-            filterChain.doFilter(request, response)
-            return
-        }
+* What went wrong:
+Execution failed for task ':app:compileTestKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
 
-        try {
-            val authorization =
-                request.getHeader("Authorization")
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
 
-            if (authorization.isNullOrBlank()) {
-                response.sendError(
-                    HttpServletResponse.SC_UNAUTHORIZED,
-                    "Authorization header is required"
-                )
-                return
-            }
-
-            if (!authorization.startsWith("Bearer ")) {
-                response.sendError(
-                    HttpServletResponse.SC_UNAUTHORIZED,
-                    "Invalid Authorization header"
-                )
-                return
-            }
-
-            val token =
-                authorization.removePrefix("Bearer ").trim()
-
-            if (token.isBlank()) {
-                response.sendError(
-                    HttpServletResponse.SC_UNAUTHORIZED,
-                    "Firebase ID token must not be blank"
-                )
-                return
-            }
-
-            val ownerId =
-                firebaseTokenService.verifyToken(token)
-
-            currentOwnerContext.setOwnerId(ownerId)
-
-            SecurityContextHolder
-                .getContext()
-                .authentication =
-                UsernamePasswordAuthenticationToken(
-                    ownerId,
-                    null,
-                    AuthorityUtils.NO_AUTHORITIES
-                )
-
-            filterChain.doFilter(request, response)
-
-        } catch (ex: Exception) {
-
-            logger.error(
-                "Firebase authentication failed",
-                ex
-            )
-
-            SecurityContextHolder.clearContext()
-
-            response.sendError(
-                HttpServletResponse.SC_UNAUTHORIZED,
-                "Invalid Firebase ID token"
-            )
-        } finally {
-            currentOwnerContext.clear()
-        }
-    }
-}
+BUILD FAILED in 30s
+8 actionable tasks: 2 executed, 6 up-to-date
+Configuration cache entry reused.
+PS D:\New folder\client-ledger-codespace-main> 
