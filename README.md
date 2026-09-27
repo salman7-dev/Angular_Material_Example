@@ -1,24 +1,121 @@
-PS D:\New folder\client-ledger-codespace-main> .\gradlew.bat :app:bootRun                        
-Starting a Gradle Daemon, 2 incompatible and 1 stopped Daemons could not be reused, use --status for details
-Calculating task graph as no cached configuration is available for tasks: :app:bootRun
+{
+    "kind": "identitytoolkit#SignupNewUserResponse",
+    "localId": "wfcOBhPqX4xxI3utPsHtkXCp1zhJ",
+    "email": "owner1@example.com",
+    "idToken": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJlbWFpbCI6Im93bmVyMUBleGFtcGxlLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjpmYWxzZSwiYXV0aF90aW1lIjoxNzkwNDk4NDk2LCJ1c2VyX2lkIjoid2ZjT0JoUHFYNHh4STN1dFBzSHRrWENwMXpoSiIsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsib3duZXIxQGV4YW1wbGUuY29tIl19LCJzaWduX2luX3Byb3ZpZGVyIjoicGFzc3dvcmQifSwiaWF0IjoxNzkwNDk4NDk2LCJleHAiOjE3OTA1MDIwOTYsImF1ZCI6ImNsaWVudC1sZWRnZXItZGFzaGJvYXJkIiwiaXNzIjoiaHR0cHM6Ly9zZWN1cmV0b2tlbi5nb29nbGUuY29tL2NsaWVudC1sZWRnZXItZGFzaGJvYXJkIiwic3ViIjoid2ZjT0JoUHFYNHh4STN1dFBzSHRrWENwMXpoSiJ9.",
+    "refreshToken": "eyJfQXV0aEVtdWxhdG9yUmVmcmVzaFRva2VuIjoiRE8gTk9UIE1PRElGWSIsImxvY2FsSWQiOiJ3ZmNPQmhQcVg0eHhJM3V0UHNIdGtYQ3AxemhKIiwicHJvdmlkZXIiOiJwYXNzd29yZCIsImV4dHJhQ2xhaW1zIjp7fSwicHJvamVjdElkIjoiY2xpZW50LWxlZGdlci1kYXNoYm9hcmQifQ==",
+    "expiresIn": "3600"
+}
 
-> Task :app:bootRun FAILED
-Error: Could not find or load main class com.clientledger.core.app.ClientLedgerApplicationKt
-Caused by: java.lang.ClassNotFoundException: com.clientledger.core.app.ClientLedgerApplicationKt
 
-FAILURE: Build failed with an exception.
+package com.clientledger.core.auth
 
-* What went wrong:
-Execution failed for task ':app:bootRun'.
-> Process 'command 'C:\Program Files\Java\jdk-17\bin\java.exe'' finished with non-zero exit value 1
+import com.clientledger.core.config.ClientLedgerProperties
+import jakarta.servlet.FilterChain
+import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
+import org.slf4j.LoggerFactory
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.authority.SimpleGrantedAuthority
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.stereotype.Component
+import org.springframework.web.filter.OncePerRequestFilter
 
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
+@Component
+class FirebaseAuthenticationFilter(
+    private val firebaseTokenService: FirebaseTokenService,
+    private val currentOwnerContext: CurrentOwnerContext,
+    private val properties: ClientLedgerProperties
+) : OncePerRequestFilter() {
 
-BUILD FAILED in 2m 31s
-18 actionable tasks: 14 executed, 4 up-to-date
-Configuration cache entry stored.
-PS D:\New folder\client-ledger-codespace-main> 
+    private val logger =
+        LoggerFactory.getLogger(
+            FirebaseAuthenticationFilter::class.java
+        )
+
+    override fun doFilterInternal(
+        request: HttpServletRequest,
+        response: HttpServletResponse,
+        filterChain: FilterChain
+    ) {
+        if (!properties.auth.enabled) {
+            filterChain.doFilter(request, response)
+            return
+        }
+
+        val authorization =
+            request.getHeader("Authorization")
+
+        if (authorization.isNullOrBlank()) {
+            response.sendError(
+                HttpServletResponse.SC_UNAUTHORIZED,
+                "Authorization header is required"
+            )
+            return
+        }
+
+        if (!authorization.startsWith("Bearer ")) {
+            response.sendError(
+                HttpServletResponse.SC_UNAUTHORIZED,
+                "Invalid Authorization header"
+            )
+            return
+        }
+
+        val token =
+            authorization
+                .removePrefix("Bearer ")
+                .trim()
+
+        if (token.isBlank()) {
+            response.sendError(
+                HttpServletResponse.SC_UNAUTHORIZED,
+                "Firebase ID token must not be blank"
+            )
+            return
+        }
+
+        val authenticatedUser =
+            try {
+                firebaseTokenService.verifyToken(token)
+            } catch (ex: Exception) {
+
+                logger.warn("Firebase authentication failed: {}", ex)
+
+                response.sendError(
+                    HttpServletResponse.SC_UNAUTHORIZED,
+                    "Invalid Firebase ID token"
+                )
+
+                return
+            }
+
+        currentOwnerContext.setOwnerId(
+            authenticatedUser.uid
+        )
+
+        val authority =
+            SimpleGrantedAuthority(
+                "ROLE_${authenticatedUser.role.name}"
+            )
+
+        SecurityContextHolder
+            .getContext()
+            .authentication =
+            UsernamePasswordAuthenticationToken(
+                authenticatedUser.uid,
+                null,
+                listOf(authority)
+            )
+
+        try {
+            filterChain.doFilter(
+                request,
+                response
+            )
+        } finally {
+            SecurityContextHolder.clearContext()
+            currentOwnerContext.clear()
+        }
+    }
+}
