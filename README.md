@@ -1,25 +1,192 @@
-PS D:\New folder\client-ledger-codespace-main> .\gradlew.bat :app:test
-Reusing configuration cache.
+package com.clientledger.core.repository.owner
 
-> Task :app:compileTestKotlin
-e: file:///D:/New%20folder/client-ledger-codespace-main/app/src/test/kotlin/com/clientledger/core/auth/FirebaseAuthenticationFilterTest.kt:137:25 Argument type mismatch: actual type is 'kotlin.String', but 'com.clientledger.core.auth.AuthenticatedUser!' was expected.
+import com.clientledger.core.domain.Address
+import com.clientledger.core.domain.owner.Owner
+import com.google.cloud.firestore.DocumentReference
+import com.google.cloud.firestore.DocumentSnapshot
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.Transaction
+import org.springframework.stereotype.Repository
+import java.time.Instant
 
-> Task :app:compileTestKotlin FAILED
+@Repository
+class OwnerRepository(
+    private val firestore: Firestore
+) {
 
-FAILURE: Build failed with an exception.
+    private fun ownerReference(
+        ownerId: String
+    ): DocumentReference {
 
-* What went wrong:
-Execution failed for task ':app:compileTestKotlin'.
-> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
-   > Compilation error. See log for more details
+        require(ownerId.isNotBlank()) {
+            "ownerId must not be blank"
+        }
 
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
+        return firestore
+            .collection("owners")
+            .document(ownerId)
+    }
 
-BUILD FAILED in 30s
-8 actionable tasks: 2 executed, 6 up-to-date
-Configuration cache entry reused.
-PS D:\New folder\client-ledger-codespace-main> 
+    fun exists(
+        ownerId: String
+    ): Boolean {
+
+        return ownerReference(ownerId)
+            .get()
+            .get()
+            .exists()
+    }
+
+    fun existsInTransaction(
+        transaction: Transaction,
+        ownerId: String
+    ): Boolean {
+
+        return transaction
+            .get(
+                ownerReference(ownerId)
+            )
+            .get()
+            .exists()
+    }
+
+    fun create(
+        owner: Owner
+    ): Owner {
+
+        require(owner.ownerId.isNotBlank()) {
+            "ownerId must not be blank"
+        }
+
+        ownerReference(owner.ownerId)
+            .set(toFirestoreMap(owner))
+            .get()
+
+        return owner
+    }
+
+    fun createInTransaction(
+        transaction: Transaction,
+        owner: Owner
+    ): Owner {
+
+        require(owner.ownerId.isNotBlank()) {
+            "ownerId must not be blank"
+        }
+
+        transaction.set(
+            ownerReference(owner.ownerId),
+            toFirestoreMap(owner)
+        )
+
+        return owner
+    }
+
+    fun find(
+        ownerId: String
+    ): Owner? {
+
+        val snapshot =
+            ownerReference(ownerId)
+                .get()
+                .get()
+
+        if (!snapshot.exists()) {
+            return null
+        }
+
+        return toOwner(snapshot)
+    }
+
+    private fun toFirestoreMap(
+        owner: Owner
+    ): Map<String, Any?> {
+
+        return mapOf(
+            "ownerId" to owner.ownerId,
+            "name" to owner.name,
+            "businessName" to owner.businessName,
+            "phone" to owner.phone,
+            "email" to owner.email,
+            "gstNumber" to owner.gstNumber,
+            "address" to mapOf(
+                "line1" to owner.address.line1,
+                "line2" to owner.address.line2,
+                "city" to owner.address.city,
+                "state" to owner.address.state,
+                "pinCode" to owner.address.pinCode,
+                "country" to owner.address.country
+            ),
+            "createdAt" to owner.createdAt.toString(),
+            "updatedAt" to owner.updatedAt.toString()
+        )
+    }
+
+    private fun toOwner(
+        snapshot: DocumentSnapshot
+    ): Owner {
+
+        val addressMap =
+            snapshot.get("address") as? Map<*, *>
+
+        val address =
+            Address(
+                line1 =
+                addressMap?.get("line1") as? String ?: "",
+
+                line2 =
+                addressMap?.get("line2") as? String,
+
+                city =
+                addressMap?.get("city") as? String ?: "",
+
+                state =
+                addressMap?.get("state") as? String ?: "",
+
+                pinCode =
+                addressMap?.get("pinCode") as? String ?: "",
+
+                country =
+                addressMap?.get("country") as? String ?: "India"
+            )
+
+        return Owner(
+            ownerId =
+            snapshot.getString("ownerId")
+                ?: snapshot.id,
+
+            name =
+            snapshot.getString("name")
+                ?: "",
+
+            businessName =
+            snapshot.getString("businessName")
+                ?: "",
+
+            phone =
+            snapshot.getString("phone")
+                ?: "",
+
+            email =
+            snapshot.getString("email")
+                ?: "",
+
+            gstNumber =
+            snapshot.getString("gstNumber")
+                ?: "",
+
+            address = address,
+
+            createdAt =
+            snapshot.getString("createdAt")
+                ?.let(Instant::parse)
+                ?: Instant.EPOCH,
+
+            updatedAt =
+            snapshot.getString("updatedAt")
+                ?.let(Instant::parse)
+                ?: Instant.EPOCH
+        )
+    }
+
+}
