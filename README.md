@@ -1,42 +1,10 @@
-package com.clientledger.core.config
-
-import com.google.cloud.NoCredentials
-import com.google.cloud.firestore.Firestore
-import com.google.cloud.firestore.FirestoreOptions
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
-
-@Configuration
-class FireStoreConfig(
-    private val properties: ClientLedgerProperties
-) {
-
-    @Bean
-    fun firestore(): Firestore {
-
-        println(
-            """
-        ================= FIRESTORE CONFIG =================
-        projectId     = ${properties.firestore.projectId}
-        host          = ${properties.firestore.host}
-        emulatorHost  = ${properties.firestore.emulatorHost}
-        =====================================================
-        """.trimIndent()
-        )
-
-        val builder = FirestoreOptions.newBuilder()
-            .setProjectId(properties.firestore.projectId)
-            .setCredentials(NoCredentials.getInstance())
-
-        if (properties.firestore.host.isNotBlank()) {
-            builder.setHost(properties.firestore.host)
-        }
-
-        if (properties.firestore.emulatorHost.isNotBlank()) {
-            builder.setEmulatorHost(properties.firestore.emulatorHost)
-        }
-
-        return builder.build().service
-    }
-}
-
+PS D:\New folder\client-ledger-codespace-main> curl.exe http://127.0.0.1:8080
+Ok
+PS D:\New folder\client-ledger-codespace-main> netstat -ano | findstr :8080
+  TCP    127.0.0.1:8080         0.0.0.0:0              LISTENING       14612
+  TCP    127.0.0.1:8080         127.0.0.1:63223        ESTABLISHED     14612
+  TCP    127.0.0.1:8080         127.0.0.1:63225        ESTABLISHED     14612
+  TCP    127.0.0.1:63223        127.0.0.1:8080         ESTABLISHED     19216
+  TCP    127.0.0.1:63225        127.0.0.1:8080         ESTABLISHED     14612
+  TCP    127.0.0.1:64257        127.0.0.1:8080         TIME_WAIT       0
+PS D:\New folder\client-ledger-codespace-main> 
