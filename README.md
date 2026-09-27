@@ -1,58 +1,362 @@
-package com.clientledger.core.service.owner
+createAndFindOwner()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 13 more
+existsReturnsFalseForMissingOwner()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 13 more
+existsReturnsTrueForExistingOwner()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 13 more
+findReturnsNullWhenOwnerDoesNotExist()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.DelayedClientCall$DelayedListener$3.run(DelayedClientCall.java:489)
+	at app//io.grpc.internal.DelayedClientCall$DelayedListener.delayOrExecute(DelayedClientCall.java:453)
+	at app//io.grpc.internal.DelayedClientCall$DelayedListener.onClose(DelayedClientCall.java:486)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 16 more
 
-import com.clientledger.core.domain.owner.Owner
-import com.clientledger.core.repository.owner.OwnerRepository
-import com.clientledger.core.utils.IdGenerator
-import org.springframework.stereotype.Service
-import java.time.Instant
 
-@Service
-class OwnerService(
-    private val ownerRepository: OwnerRepository
-) {
+    refer class:
 
-    fun createOwner(
-        name: String,
-        businessName: String,
-        phone: String,
-        email: String,
-        gstNumber: String,
-        address: com.clientledger.core.domain.Address
-    ): Owner {
-
-        require(name.isNotBlank()) {
-            "name must not be blank"
-        }
-
-        require(businessName.isNotBlank()) {
-            "businessName must not be blank"
-        }
-
-        val now = Instant.now()
-
-        val owner = Owner(
-            ownerId = IdGenerator.generateClientId(),
-            name = name,
-            businessName = businessName,
-            phone = phone,
-            email = email,
-            gstNumber = gstNumber,
-            address = address,
-            createdAt = now,
-            updatedAt = now
-        )
-
-        return ownerRepository.create(owner)
-    }
-
-    fun getOwner(
-        ownerId: String
-    ): Owner? {
-
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
-
-        return ownerRepository.find(ownerId)
-    }
-}
+    createAndFindOwner()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 13 more
+existsReturnsFalseForMissingOwner()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 13 more
+existsReturnsTrueForExistingOwner()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 13 more
+findReturnsNullWhenOwnerDoesNotExist()
+com.google.cloud.firestore.FirestoreException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.cloud.firestore.FirestoreException.forApiException(FirestoreException.java:104)
+	at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:151)
+	at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+	at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: com.google.api.gax.rpc.PermissionDeniedException: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:98)
+	at app//com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	at app//com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:66)
+	at app//com.google.api.gax.grpc.GrpcExceptionCallable$ExceptionTransformingFuture.onFailure(GrpcExceptionCallable.java:97)
+	at app//com.google.api.core.ApiFutures$1.onFailure(ApiFutures.java:84)
+	at app//com.google.common.util.concurrent.Futures$CallbackListener.run(Futures.java:1132)
+	at app//com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:31)
+	at app//com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1270)
+	at app//com.google.common.util.concurrent.AbstractFuture.complete(AbstractFuture.java:1038)
+	at app//com.google.common.util.concurrent.AbstractFuture.setException(AbstractFuture.java:808)
+	at app//io.grpc.stub.ClientCalls$GrpcFuture.setException(ClientCalls.java:574)
+	at app//io.grpc.stub.ClientCalls$UnaryStreamToFuture.onClose(ClientCalls.java:544)
+	at app//io.grpc.internal.DelayedClientCall$DelayedListener$3.run(DelayedClientCall.java:489)
+	at app//io.grpc.internal.DelayedClientCall$DelayedListener.delayOrExecute(DelayedClientCall.java:453)
+	at app//io.grpc.internal.DelayedClientCall$DelayedListener.onClose(DelayedClientCall.java:486)
+	at app//io.grpc.internal.ClientCallImpl.closeObserver(ClientCallImpl.java:567)
+	at app//io.grpc.internal.ClientCallImpl.access$300(ClientCallImpl.java:71)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInternal(ClientCallImpl.java:735)
+	at app//io.grpc.internal.ClientCallImpl$ClientStreamListenerImpl$1StreamClosed.runInContext(ClientCallImpl.java:716)
+	at app//io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at app//io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base@17.0.11/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base@17.0.11/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base@17.0.11/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base@17.0.11/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base@17.0.11/java.lang.Thread.run(Thread.java:842)
+	Suppressed: com.google.api.gax.rpc.AsyncTaskException: Asynchronous task failed
+		at app//com.google.api.gax.rpc.ApiExceptions.callAndTranslateApiException(ApiExceptions.java:57)
+		at app//com.google.cloud.firestore.CollectionReference.listDocuments(CollectionReference.java:148)
+		at app//com.clientledger.core.repository.owner.OwnerRepositoryTest.setUp(OwnerRepositoryTest.kt:31)
+		at java.base@17.0.11/java.lang.reflect.Method.invoke(Method.java:568)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+		at java.base@17.0.11/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: io.grpc.StatusRuntimeException: PERMISSION_DENIED: Metadata operations require admin authentication.
+	at app//io.grpc.Status.asRuntimeException(Status.java:539)
+	... 16 more
