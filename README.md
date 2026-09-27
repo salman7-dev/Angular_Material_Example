@@ -1,52 +1,3 @@
-PS D:\New folder\client-ledger-codespace-main> $env:FIREBASE_AUTH_EMULATOR_HOST
-127.0.0.1:9099
-PS D:\New folder\client-ledger-codespace-main> .\gradlew.bat :app:bootRun
-Reusing configuration cache.
-
-> Task :app:bootRun
-Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
-
-  .   ____          _            __ _ _
- /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
-( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
- \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
-  '  |____| .__|_| |_|_| |_\__, | / / / /
- =========|_|==============|___/=/_/_/_/
- :: Spring Boot ::                (v3.2.0)
-
-2026-09-27T14:10:27.982+05:30  INFO 8436 --- [           main] c.c.core.app.ClientLedgerApplicationKt   : Starting ClientLedgerApplicationKt using Java 17.0.11 with PID 8436 (D:\New folder\client-ledger-codespace-main\app\build\classes\kotlin\main started by khans in D:\New folder\client-ledger-codespace-main\app)
-2026-09-27T14:10:27.988+05:30  INFO 8436 --- [           main] c.c.core.app.ClientLedgerApplicationKt   : No active profile set, falling back to 1 default profile: "default"
-2026-09-27T14:10:31.041+05:30  INFO 8436 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8081 (http)
-2026-09-27T14:10:31.082+05:30  INFO 8436 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-2026-09-27T14:10:31.083+05:30  INFO 8436 --- [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.16]
-2026-09-27T14:10:31.291+05:30  INFO 8436 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-2026-09-27T14:10:31.294+05:30  INFO 8436 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3165 ms
-Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
-2026-09-27T14:10:32.809+05:30  WARN 8436 --- [           main] .s.s.UserDetailsServiceAutoConfiguration : 
-
-Using generated security password: b44522a2-08b7-4c03-9aa3-4ced67fc53dc
-
-This generated password is for development use only. Your security configuration must be updated before running your application in production.
-
-2026-09-27T14:10:33.158+05:30  INFO 8436 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@1d7eb170, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@5b251fb9, org.springframework.security.web.context.SecurityC
-ontextHolderFilter@1d3c112a, org.springframework.security.web.header.HeaderWriterFilter@11d4d979, org.springframework.web.filter.CorsFilter@67d4c48d, org.springframework.security.
-web.csrf.CsrfFilter@1cbc1dde, org.springframework.security.web.authentication.logout.LogoutFilter@7df6d663, org.springframework.security.web.authentication.UsernamePasswordAuthent
-icationFilter@236ae13d, org.springframework.security.web.authentication.ui.DefaultLoginPageGeneratingFilter@57f8951a, org.springframework.security.web.authentication.ui.DefaultLog
-outPageGeneratingFilter@230a73f2, org.springframework.security.web.authentication.www.BasicAuthenticationFilter@3e1f1046, org.springframework.security.web.savedrequest.RequestCach
-eAwareFilter@1f71194d, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@db99785, org.springframework.security.web.authentication.AnonymousAuthen
-ticationFilter@4b97b3d2, org.springframework.security.web.access.ExceptionTranslationFilter@531ec978, org.springframework.security.web.access.intercept.AuthorizationFilter@76437e9b]
-2026-09-27T14:10:33.298+05:30  INFO 8436 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8081 (http) with context path ''
-2026-09-27T14:10:33.321+05:30  INFO 8436 --- [           main] c.c.core.app.ClientLedgerApplicationKt   : Started ClientLedgerApplicationKt in 6.341 seconds (process running for 7.332)
-2026-09-27T14:10:46.319+05:30  INFO 8436 --- [nio-8081-exec-2] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
-2026-09-27T14:10:46.320+05:30  INFO 8436 --- [nio-8081-exec-2] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
-2026-09-27T14:10:46.323+05:30  INFO 8436 --- [nio-8081-exec-2] o.s.web.servlet.DispatcherServlet        : Completed initialization in 3 ms
-2026-09-27T14:10:46.423+05:30  WARN 8436 --- [nio-8081-exec-2] o.s.w.s.h.HandlerMappingIntrospector     : Cache miss for REQUEST dispatch to '/api/owners' (previous null). Performing CorsConfiguration lookup. This is logged once only at WARN level, and every time at TRACE.
-2026-09-27T14:10:46.583+05:30  WARN 8436 --- [nio-8081-exec-2] o.a.c.util.SessionIdGeneratorBase        : Creation of SecureRandom instance for session ID generation using [SHA1PRNG] took [119] milliseconds.
-<============-> 94% EXECUTING [32m 14s]
-> :app:bootRun
-Terminate batch job (Y/N)? 
-^C
-PS D:\New folder\client-ledger-codespace-main> ^C
 PS D:\New folder\client-ledger-codespace-main> $env:FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:9099"
 PS D:\New folder\client-ledger-codespace-main> $env:FIREBASE_AUTH_EMULATOR_HOST
 127.0.0.1:9099
@@ -94,4 +45,9 @@ nticationFilter@46320c9a, org.springframework.security.web.access.ExceptionTrans
 2026-09-27T14:44:09.104+05:30  INFO 16544 --- [nio-8081-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 3 ms
 2026-09-27T14:44:09.486+05:30  WARN 16544 --- [nio-8081-exec-1] o.s.w.s.h.HandlerMappingIntrospector     : Cache miss for REQUEST dispatch to '/api/owners' (previous null). Performing CorsConfiguration lookup. This is logged once only at WARN level, and every time at TRACE.                                                                                    
 2026-09-27T14:44:09.655+05:30  WARN 16544 --- [nio-8081-exec-1] o.a.c.util.SessionIdGeneratorBase        : Creation of SecureRandom instance for session ID generation using [SHA1PRNG] took [126] milliseconds.
-<============-> 94% EXECUTING [1m 36s] 
+<============-> 94% EXECUTING [2m 18s]
+> IDLE
+> IDLE                                                                                                                                                                             
+> IDLE
+> :app:bootRun
+
