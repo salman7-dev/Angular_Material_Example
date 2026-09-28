@@ -1,240 +1,309 @@
 package com.clientledger.core.config
 
-import com.google.api.gax.grpc.InstantiatingGrpcChannelProvider
-import com.google.auth.oauth2.GoogleCredentials
-import com.google.cloud.NoCredentials
-import com.google.cloud.firestore.Firestore
-import com.google.cloud.firestore.FirestoreOptions
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
-import java.io.FileInputStream
-
-@Configuration
-class FireStoreConfig(
-    private val properties: ClientLedgerProperties
-) {
-
-    @Bean
-    fun firestore(): Firestore {
-
-        return when (properties.mode) {
-
-            ClientLedgerProperties.ApplicationMode.EMULATOR -> {
-                createEmulatorFirestore()
-            }
-
-            ClientLedgerProperties.ApplicationMode.CLOUD -> {
-                createCloudFirestore()
-            }
-        }
-    }
-
-    private fun createEmulatorFirestore(): Firestore {
-
-        val firestoreProperties = properties.firestore
-        val targetHost = firestoreProperties.emulatorHost
-
-        require(targetHost.isNotBlank()) {
-            "client-ledger.firestore.emulator-host must not be blank when application mode is EMULATOR"
-        }
-
-        println(
-            """
-            ================= FIRESTORE CONFIG =================
-            mode          = EMULATOR/ CLOUD
-            projectId     = ${firestoreProperties.projectId}
-            emulatorHost  = $targetHost
-            =====================================================
-            """.trimIndent()
-        )
-
-        val channelProvider =
-            InstantiatingGrpcChannelProvider.newBuilder()
-                .setEndpoint(targetHost)
-                .setChannelConfigurator { builder ->
-                    builder.usePlaintext()
-                }
-                .build()
-
-        return FirestoreOptions.newBuilder()
-            .setProjectId(firestoreProperties.projectId)
-            .setHost(targetHost)
-            .setChannelProvider(channelProvider)
-            .setCredentials(NoCredentials.getInstance())
-            .build()
-            .service
-    }
-
-    private fun createCloudFirestore(): Firestore {
-
-        val firestoreProperties = properties.firestore
-        val credentialsPath = properties.auth.credentialsPath
-
-        require(firestoreProperties.projectId.isNotBlank()) {
-            "client-ledger.firestore.project-id must not be blank"
-        }
-
-        require(credentialsPath.isNotBlank()) {
-            "client-ledger.auth.credentials-path must not be blank when application mode is CLOUD"
-        }
-
-        println(
-            """
-            ================= FIRESTORE CONFIG =================
-            mode             = CLOUD
-            projectId        = ${firestoreProperties.projectId}
-            credentialsPath  = $credentialsPath
-            =====================================================
-            """.trimIndent()
-        )
-
-        val credentials =
-            if (credentialsPath.startsWith("classpath:")) {
-                val resourcePath =
-                    credentialsPath.removePrefix("classpath:")
-
-                val resource =
-                    javaClass.classLoader.getResource(resourcePath)
-                        ?: error(
-                            "Firebase service account file not found on classpath: $resourcePath"
-                        )
-
-                resource.openStream().use { inputStream ->
-                    GoogleCredentials.fromStream(inputStream)
-                }
-            } else {
-                FileInputStream(credentialsPath).use { inputStream ->
-                    GoogleCredentials.fromStream(inputStream)
-                }
-            }
-
-        return FirestoreOptions.newBuilder()
-            .setProjectId(firestoreProperties.projectId)
-            .setCredentials(credentials)
-            .build()
-            .service
-    }
-}package com.clientledger.core.config
-
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
-import jakarta.annotation.PostConstruct
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.io.ClassPathResource
 import java.io.FileInputStream
 
 @Configuration
-class FirebaseAdminConfig(
+@ConditionalOnProperty(
+    prefix = "client-ledger",
+    name = ["mode"],
+    havingValue = "CLOUD"
+)
+class FirebaseCloudConfig(
     private val properties: ClientLedgerProperties
 ) {
 
-    @PostConstruct
-    fun initEmulatorEnvironment() {
-        val authProperties = properties.auth
-        if (authProperties.enabled && authProperties.mode == ClientLedgerProperties.ApplicationMode.EMULATOR) {
-            val emulatorHost = authProperties.emulatorHost.ifBlank { "127.0.0.1:9099" }
-            System.setProperty("FIREBASE_AUTH_EMULATOR_HOST", emulatorHost)
-        } else {
-            // Clear environment variable when running in CLOUD mode
-            System.clearProperty("FIREBASE_AUTH_EMULATOR_HOST")
-        }
-    }
-
     @Bean
     fun firebaseApp(): FirebaseApp {
+
         FirebaseApp.getApps()
             .firstOrNull()
             ?.let { return it }
 
-        val authProperties = properties.auth
+        val credentialsPath =
+            properties.auth.credentialsPath
 
-        val optionsBuilder = FirebaseOptions.builder()
-            .setProjectId(properties.firestore.projectId)
-
-        when (authProperties.mode) {
-            ClientLedgerProperties.ApplicationMode.EMULATOR -> {
-                optionsBuilder.setCredentials(GoogleCredentials.create(null))
-            }
-
-            ClientLedgerProperties.ApplicationMode.CLOUD -> {
-                val credentialsPath = authProperties.credentialsPath
-
-                require(credentialsPath.isNotBlank()) {
-                    "client-ledger.auth.credentials-path must not be blank when auth mode is CLOUD"
-                }
-
-                // Check if path starts with classpath: or points to a resource in src/main/resources
-                val credentialsStream = if (credentialsPath.startsWith("classpath:")) {
-                    ClassPathResource(credentialsPath.removePrefix("classpath:")).inputStream
-                } else {
-                    // Falls back to direct file stream if an absolute file path is passed
-                    runCatching { ClassPathResource(credentialsPath).inputStream }
-                        .getOrElse { FileInputStream(credentialsPath) }
-                }
-
-                credentialsStream.use { inputStream ->
-                    optionsBuilder.setCredentials(GoogleCredentials.fromStream(inputStream))
-                }
-            }
+        require(credentialsPath.isNotBlank()) {
+            "client-ledger.auth.credentials-path must not be blank when mode is CLOUD"
         }
 
+        val credentials =
+            if (credentialsPath.startsWith("classpath:")) {
+
+                val resourcePath =
+                    credentialsPath.removePrefix("classpath:")
+
+                val resource =
+                    ClassPathResource(resourcePath)
+
+                require(resource.exists()) {
+                    "Firebase service account file not found on classpath: $resourcePath"
+                }
+
+                resource.inputStream.use { inputStream ->
+                    GoogleCredentials.fromStream(inputStream)
+                }
+
+            } else {
+
+                FileInputStream(credentialsPath).use { inputStream ->
+                    GoogleCredentials.fromStream(inputStream)
+                }
+            }
+
+        println(
+            """
+            =================================================
+             FIREBASE CONFIGURATION
+            =================================================
+             Environment : CLOUD
+             Project ID  : ${properties.firestore.projectId}
+             Auth        : FIREBASE CLOUD
+             Firestore   : FIREBASE CLOUD
+            =================================================
+            """.trimIndent()
+        )
+
+        val options =
+            FirebaseOptions.builder()
+                .setProjectId(properties.firestore.projectId)
+                .setCredentials(credentials)
+                .build()
+
         return FirebaseApp.initializeApp(
-            optionsBuilder.build(),
+            options,
             FirebaseApp.DEFAULT_APP_NAME
-        ) ?: error("Failed to initialize Firebase Admin SDK")
+        ) ?: error("Failed to initialize Firebase Cloud")
     }
 
     @Bean
-    fun firebaseAuth(firebaseApp: FirebaseApp): FirebaseAuth {
+    fun firebaseAuth(
+        firebaseApp: FirebaseApp
+    ): FirebaseAuth {
         return FirebaseAuth.getInstance(firebaseApp)
     }
-}package com.clientledger.core.config
+}
 
-import org.springframework.boot.context.properties.ConfigurationProperties
+package com.clientledger.core.config
 
-@ConfigurationProperties(prefix = "client-ledger")
-data class ClientLedgerProperties(
+import com.google.auth.oauth2.GoogleCredentials
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import com.google.firebase.auth.FirebaseAuth
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 
-    val mode: ApplicationMode = ApplicationMode.EMULATOR,
-
-    val history: HistoryProperties = HistoryProperties(),
-
-    val summary: SummaryProperties = SummaryProperties(),
-
-    val firestore: FirestoreProperties = FirestoreProperties(),
-
-    val auth: AuthProperties = AuthProperties()
+@Configuration
+@ConditionalOnProperty(
+    prefix = "client-ledger",
+    name = ["mode"],
+    havingValue = "EMULATOR"
+)
+class FirebaseEmulatorConfig(
+    private val properties: ClientLedgerProperties
 ) {
 
-    enum class ApplicationMode {
-        EMULATOR,
-        CLOUD
+    @Bean
+    fun firebaseApp(): FirebaseApp {
+
+        FirebaseApp.getApps()
+            .firstOrNull()
+            ?.let { return it }
+
+        val emulatorHost =
+            properties.auth.emulatorHost.ifBlank {
+                "127.0.0.1:9099"
+            }
+
+        println(
+            """
+            =================================================
+             FIREBASE CONFIGURATION
+            =================================================
+             Environment : EMULATOR
+             Project ID  : ${properties.firestore.projectId}
+             Auth        : FIREBASE AUTH EMULATOR ($emulatorHost)
+             Firestore   : FIRESTORE EMULATOR (${properties.firestore.emulatorHost})
+            =================================================
+            """.trimIndent()
+        )
+
+        val options =
+            FirebaseOptions.builder()
+                .setProjectId(properties.firestore.projectId)
+                .setCredentials(GoogleCredentials.create(null))
+                .build()
+
+        return FirebaseApp.initializeApp(
+            options,
+            FirebaseApp.DEFAULT_APP_NAME
+        ) ?: error("Failed to initialize Firebase Emulator")
     }
 
-    data class HistoryProperties(
-        val editableMonths: Int = 8,
-        val bucketCapacity: Int = 100
-    )
-
-    data class FirestoreProperties(
-        val projectId: String = "",
-        val host: String = "",
-        val emulatorHost: String = "127.0.0.1:8080"
-    )
-
-    data class SummaryProperties(
-        val indexBucketCapacity: Int = 300
-    )
-
-    data class AuthProperties(
-        val enabled: Boolean = true,
-        val mode: ApplicationMode = ApplicationMode.EMULATOR,
-        val emulatorHost: String = "127.0.0.1:9099",
-        val credentialsPath: String = "",
-        val localOwnerId: String = ""
-    )
-
+    @Bean
+    fun firebaseAuth(
+        firebaseApp: FirebaseApp
+    ): FirebaseAuth {
+        return FirebaseAuth.getInstance(firebaseApp)
+    }
 }
+
+package com.clientledger.core.config
+
+import com.google.auth.oauth2.GoogleCredentials
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.FirestoreOptions
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+import org.springframework.core.io.ClassPathResource
+import java.io.FileInputStream
+
+@Configuration
+@ConditionalOnProperty(
+    prefix = "client-ledger",
+    name = ["mode"],
+    havingValue = "CLOUD"
+)
+class FireStoreCloudConfig(
+    private val properties: ClientLedgerProperties
+) {
+
+    @Bean
+    fun firestore(): Firestore {
+
+        val projectId =
+            properties.firestore.projectId
+
+        val credentialsPath =
+            properties.auth.credentialsPath
+
+        require(projectId.isNotBlank()) {
+            "client-ledger.firestore.project-id must not be blank when mode is CLOUD"
+        }
+
+        require(credentialsPath.isNotBlank()) {
+            "client-ledger.auth.credentials-path must not be blank when mode is CLOUD"
+        }
+
+        val credentials =
+            if (credentialsPath.startsWith("classpath:")) {
+
+                val resourcePath =
+                    credentialsPath.removePrefix("classpath:")
+
+                val resource =
+                    ClassPathResource(resourcePath)
+
+                require(resource.exists()) {
+                    "Firebase service account file not found on classpath: $resourcePath"
+                }
+
+                resource.inputStream.use { inputStream ->
+                    GoogleCredentials.fromStream(inputStream)
+                }
+
+            } else {
+
+                FileInputStream(credentialsPath).use { inputStream ->
+                    GoogleCredentials.fromStream(inputStream)
+                }
+            }
+
+        println(
+            """
+            =================================================
+             FIRESTORE CONFIGURATION
+            =================================================
+             Environment : CLOUD
+             Project ID  : $projectId
+             Firestore   : FIREBASE CLOUD
+            =================================================
+            """.trimIndent()
+        )
+
+        return FirestoreOptions.newBuilder()
+            .setProjectId(projectId)
+            .setCredentials(credentials)
+            .build()
+            .service
+    }
+}
+
+
+package com.clientledger.core.config
+
+import com.google.api.gax.grpc.InstantiatingGrpcChannelProvider
+import com.google.cloud.NoCredentials
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.FirestoreOptions
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+
+@Configuration
+@ConditionalOnProperty(
+    prefix = "client-ledger",
+    name = ["mode"],
+    havingValue = "EMULATOR"
+)
+class FireStoreEmulatorConfig(
+    private val properties: ClientLedgerProperties
+) {
+
+    @Bean
+    fun firestore(): Firestore {
+
+        val projectId =
+            properties.firestore.projectId
+
+        val emulatorHost =
+            properties.firestore.emulatorHost
+
+        require(projectId.isNotBlank()) {
+            "client-ledger.firestore.project-id must not be blank when mode is EMULATOR"
+        }
+
+        require(emulatorHost.isNotBlank()) {
+            "client-ledger.firestore.emulator-host must not be blank when mode is EMULATOR"
+        }
+
+        println(
+            """
+            =================================================
+             FIRESTORE CONFIGURATION
+            =================================================
+             Environment : EMULATOR
+             Project ID  : $projectId
+             Firestore   : FIRESTORE EMULATOR ($emulatorHost)
+            =================================================
+            """.trimIndent()
+        )
+
+        val channelProvider =
+            InstantiatingGrpcChannelProvider.newBuilder()
+                .setEndpoint(emulatorHost)
+                .setChannelConfigurator { builder ->
+                    builder.usePlaintext()
+                }
+                .build()
+
+        return FirestoreOptions.newBuilder()
+            .setProjectId(projectId)
+            .setHost(emulatorHost)
+            .setChannelProvider(channelProvider)
+            .setCredentials(NoCredentials.getInstance())
+            .build()
+            .service
+    }
+}
+
+
