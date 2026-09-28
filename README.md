@@ -1,4 +1,45 @@
-package com.clientledger.core.config
+server:
+  port: 8081
+
+client-ledger:
+  history:
+    editable-months: 2
+    bucket-capacity: 100
+
+  summary:
+    index-bucket-capacity: 300
+
+  firestore:
+    project-id: "client-ledger-dashboard"
+    emulator-host: "127.0.0.1:8080"
+
+  auth:
+    # =====================================================
+    # LOCAL DEVELOPMENT - AUTH DISABLED
+    # =====================================================
+    # enabled: false
+    # local-owner-id: "local-owner"
+
+    # =====================================================
+    # LOCAL FIREBASE AUTH EMULATOR
+    # Uncomment these and comment the above enabled/local-owner
+    # =====================================================
+#    enabled: true
+#    mode: EMULATOR
+#    emulator-host: "127.0.0.1:9099"
+#    local-owner-id: "local-owner"
+
+    # =====================================================
+    # FIREBASE CLOUD
+    # Uncomment these for cloud testing
+    # always enabled true
+    # =====================================================
+     enabled: true
+     mode: CLOUD
+     credentials-path: "classpath:client-ledger-service-account.json"
+
+
+     package com.clientledger.core.config
 
 import com.google.api.gax.grpc.InstantiatingGrpcChannelProvider
 import com.google.auth.oauth2.GoogleCredentials
@@ -114,9 +155,7 @@ class FireStoreConfig(
             .build()
             .service
     }
-}
-
-package com.clientledger.core.config
+}package com.clientledger.core.config
 
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.firebase.FirebaseApp
@@ -193,42 +232,4 @@ class FirebaseAdminConfig(
     fun firebaseAuth(firebaseApp: FirebaseApp): FirebaseAuth {
         return FirebaseAuth.getInstance(firebaseApp)
     }
-}server:
-  port: 8081
-
-client-ledger:
-  history:
-    editable-months: 2
-    bucket-capacity: 100
-
-  summary:
-    index-bucket-capacity: 300
-
-  firestore:
-    project-id: "client-ledger-dashboard"
-    emulator-host: "127.0.0.1:8080"
-
-  auth:
-    # =====================================================
-    # LOCAL DEVELOPMENT - AUTH DISABLED
-    # =====================================================
-    # enabled: false
-    # local-owner-id: "local-owner"
-
-    # =====================================================
-    # LOCAL FIREBASE AUTH EMULATOR
-    # Uncomment these and comment the above enabled/local-owner
-    # =====================================================
-#    enabled: true
-#    mode: EMULATOR
-#    emulator-host: "127.0.0.1:9099"
-#    local-owner-id: "local-owner"
-
-    # =====================================================
-    # FIREBASE CLOUD
-    # Uncomment these for cloud testing
-    # always enabled true
-    # =====================================================
-     enabled: true
-     mode: CLOUD
-     credentials-path: "classpath:client-ledger-service-account.json"
+}
