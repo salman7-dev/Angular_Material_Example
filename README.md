@@ -307,3 +307,40 @@ class FireStoreEmulatorConfig(
 }
 
 
+server:
+  port: 8081
+
+client-ledger:
+  mode: CLOUD  # change to EMULATOR if you want to use and below line uncomment in auth
+  history:
+    editable-months: 2
+    bucket-capacity: 100
+
+  summary:
+    index-bucket-capacity: 300
+
+    # =====================================================
+    # FIREBASE EMULATOR
+    # Uncomment these for cloud testing
+    # always enabled true
+    # =====================================================
+
+#  firestore:
+#    project-id: "client-ledger-dashboard"
+#    emulator-host: "127.0.0.1:8080"
+#  auth:
+#    enabled: true
+#    emulator-host: "127.0.0.1:9099"
+#    local-owner-id: "local-owner"
+
+
+    # =====================================================
+    # FIREBASE CLOUD
+    # Uncomment these for cloud testing
+    # always enabled true
+    # =====================================================
+  firestore:
+    project-id: "client-ledger-dashboard"
+  auth:
+     enabled: true
+     credentials-path: "classpath:client-ledger-service-account.json"
