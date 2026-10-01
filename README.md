@@ -1,416 +1,616 @@
-package com.clientledger.core.repository.monthlyrollover
+package com.clientledger.core.service.monthlyrollover
 
+import com.clientledger.core.config.ClientLedgerProperties
+import com.clientledger.core.domain.Client
+import com.clientledger.core.domain.GlobalSummary
+import com.clientledger.core.domain.MaintenanceState
 import com.clientledger.core.domain.MonthlyRolloverState
-import com.google.cloud.Timestamp
-import com.google.cloud.firestore.DocumentReference
-import com.google.cloud.firestore.DocumentSnapshot
+import com.clientledger.core.domain.SummaryClientIndex
+import com.clientledger.core.enums.MaintenanceMode
+import com.clientledger.core.domain.ClientType
+import com.clientledger.core.repository.client.ClientRepository
+import com.clientledger.core.repository.history.ClientHistoryBucketRepository
+import com.clientledger.core.repository.history.ClientHistoryRepository
+import com.clientledger.core.repository.lock.OwnerOperationLockRepository
+import com.clientledger.core.repository.maintenance.MaintenanceRepository
+import com.clientledger.core.repository.monthlyrollover.MonthlyRolloverRepository
+import com.clientledger.core.repository.monthlyrollover.MonthlyRolloverRetryRepository
+import com.clientledger.core.repository.summary.GlobalSummaryRepository
+import com.clientledger.core.repository.summary.SummaryClientIndexBucketRepository
+import com.clientledger.core.repository.summary.SummaryClientIndexRepository
+import com.clientledger.core.service.client.ClientService
+import com.clientledger.core.service.lock.OwnerOperationLockService
+import com.clientledger.core.transaction.FirestoreTransactionExecutor
+import com.google.cloud.NoCredentials
 import com.google.cloud.firestore.Firestore
-import org.springframework.stereotype.Repository
+import com.google.cloud.firestore.FirestoreOptions
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.context.ActiveProfiles
+import java.time.Clock
 import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
 
-@Repository
-class MonthlyRolloverRepository(
-    private val firestore: Firestore
-) {
+@SpringBootTest
+@ActiveProfiles("test")
+class PerOwnerMonthlyRolloverServiceTest {
 
-    private fun rolloverDocument(
-        ownerId: String,
-        yearMonth: String
-    ): DocumentReference {
 
-        validateOwnerId(ownerId)
-        validateYearMonth(yearMonth)
+    @Autowired
+    private lateinit var properties: ClientLedgerProperties
 
-        return firestore
-            .collection("owners")
-            .document(ownerId)
-            .collection("monthly_rollover")
-            .document(yearMonth)
-    }
+    @Autowired
+    private lateinit var ownerOperationLockService: OwnerOperationLockService
 
-    private fun retryOwnerDocument(
-        ownerId: String,
-        yearMonth: String
-    ): DocumentReference {
 
-        validateOwnerId(ownerId)
-        validateYearMonth(yearMonth)
+    companion object {
 
-        return firestore
-            .collection("system")
-            .document("monthly_rollover_retry")
-            .collection(yearMonth)
-            .document(ownerId)
-    }
+        private lateinit var firestore: Firestore
 
-    fun find(
-        ownerId: String,
-        yearMonth: String
-    ): MonthlyRolloverState? {
-
-        val snapshot =
-            rolloverDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-                .get()
-                .get()
-
-        if (!snapshot.exists()) {
-            return null
-        }
-
-        return toState(snapshot)
-    }
-
-    fun createPending(
-        ownerId: String,
-        yearMonth: String
-    ): MonthlyRolloverState {
-
-        val rolloverReference =
-            rolloverDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        return firestore
-            .runTransaction { transaction ->
-
-                val existing =
-                    transaction
-                        .get(rolloverReference)
-                        .get()
-
-                require(!existing.exists()) {
-                    "Monthly rollover state already exists: $ownerId/$yearMonth"
-                }
-
-                val state =
-                    MonthlyRolloverState(
-                        ownerId = ownerId,
-                        yearMonth = yearMonth,
-                        status = MonthlyRolloverState.Status.PENDING
-                    )
-
-                transaction.set(
-                    rolloverReference,
-                    toDocument(state)
-                )
-
-                state
-            }
-            .get()
-    }
-
-    fun markRunning(
-        ownerId: String,
-        yearMonth: String,
-        startedAt: Instant
-    ): MonthlyRolloverState {
-
-        val rolloverReference =
-            rolloverDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        val retryReference =
-            retryOwnerDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        return firestore
-            .runTransaction { transaction ->
-
-                val rolloverSnapshot =
-                    transaction
-                        .get(rolloverReference)
-                        .get()
-
-                require(rolloverSnapshot.exists()) {
-                    "Monthly rollover state does not exist: $ownerId/$yearMonth"
-                }
-
-                val current =
-                    toState(rolloverSnapshot)
-
-                require(
-                    current.status !=
-                            MonthlyRolloverState.Status.COMPLETED
-                ) {
-                    "Monthly rollover is already completed: $ownerId/$yearMonth"
-                }
-
-                val updated =
-                    current.copy(
-                        status = MonthlyRolloverState.Status.RUNNING,
-                        attempt = current.attempt + 1,
-                        startedAt = startedAt,
-                        completedAt = null,
-                        failedAt = null,
-                        error = null
-                    )
-
-                transaction.set(
-                    rolloverReference,
-                    toDocument(updated)
-                )
-
-                /*
-                 * If this is a retry of a failed owner,
-                 * remove the retry lookup entry atomically.
-                 */
-                transaction.delete(retryReference)
-
-                updated
-            }
-            .get()
-    }
-
-    fun markCompleted(
-        ownerId: String,
-        yearMonth: String,
-        completedAt: Instant
-    ): MonthlyRolloverState {
-
-        val rolloverReference =
-            rolloverDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        val retryReference =
-            retryOwnerDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        return firestore
-            .runTransaction { transaction ->
-
-                val rolloverSnapshot =
-                    transaction
-                        .get(rolloverReference)
-                        .get()
-
-                require(rolloverSnapshot.exists()) {
-                    "Monthly rollover state does not exist: $ownerId/$yearMonth"
-                }
-
-                val current =
-                    toState(rolloverSnapshot)
-
-                require(
-                    current.status ==
-                            MonthlyRolloverState.Status.RUNNING
-                ) {
-                    "Monthly rollover must be RUNNING before completion: $ownerId/$yearMonth"
-                }
-
-                val updated =
-                    current.copy(
-                        status = MonthlyRolloverState.Status.COMPLETED,
-                        completedAt = completedAt,
-                        failedAt = null,
-                        error = null
-                    )
-
-                transaction.set(
-                    rolloverReference,
-                    toDocument(updated)
-                )
-
-                /*
-                 * Successful completion must remove the owner
-                 * from the failed-owner retry index.
-                 */
-                transaction.delete(retryReference)
-
-                updated
-            }
-            .get()
-    }
-
-    fun markFailed(
-        ownerId: String,
-        yearMonth: String,
-        failedAt: Instant,
-        error: String?
-    ): MonthlyRolloverState {
-
-        val rolloverReference =
-            rolloverDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        val retryReference =
-            retryOwnerDocument(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        return firestore
-            .runTransaction { transaction ->
-
-                val rolloverSnapshot =
-                    transaction
-                        .get(rolloverReference)
-                        .get()
-
-                require(rolloverSnapshot.exists()) {
-                    "Monthly rollover state does not exist: $ownerId/$yearMonth"
-                }
-
-                val current =
-                    toState(rolloverSnapshot)
-
-                require(
-                    current.status ==
-                            MonthlyRolloverState.Status.RUNNING
-                ) {
-                    "Monthly rollover must be RUNNING before failure: $ownerId/$yearMonth"
-                }
-
-                val updated =
-                    current.copy(
-                        status = MonthlyRolloverState.Status.FAILED,
-                        failedAt = failedAt,
-                        error = error
-                    )
-
-                transaction.set(
-                    rolloverReference,
-                    toDocument(updated)
-                )
-
-                /*
-                 * Owner remains discoverable for the normal
-                 * recovery job.
-                 */
-                transaction.set(
-                    retryReference,
-                    mapOf(
-                        "ownerId" to ownerId,
-                        "yearMonth" to yearMonth,
-                        "status" to MonthlyRolloverState.Status.FAILED.name,
-                        "attempt" to updated.attempt,
-                        "failedAt" to failedAt.let(::toTimestamp),
-                        "error" to error
-                    )
-                )
-
-                updated
-            }
-            .get()
-    }
-
-    fun findFailedOwners(
-        yearMonth: String
-    ): List<String> {
-
-        validateYearMonth(yearMonth)
-
-        val snapshot =
-            firestore
-                .collection("system")
-                .document("monthly_rollover_retry")
-                .collection(yearMonth)
-                .whereEqualTo(
-                    "status",
-                    MonthlyRolloverState.Status.FAILED.name
-                )
-                .get()
-                .get()
-
-        return snapshot.documents.map { document ->
-            document.getString("ownerId")
-                ?: throw IllegalStateException(
-                    "Monthly rollover retry entry is missing ownerId: ${document.id}"
-                )
-        }
-    }
-
-    private fun toDocument(
-        state: MonthlyRolloverState
-    ): Map<String, Any?> {
-
-        return mapOf(
-            "ownerId" to state.ownerId,
-            "yearMonth" to state.yearMonth,
-            "status" to state.status.name,
-            "attempt" to state.attempt,
-            "startedAt" to state.startedAt?.let(::toTimestamp),
-            "completedAt" to state.completedAt?.let(::toTimestamp),
-            "failedAt" to state.failedAt?.let(::toTimestamp),
-            "error" to state.error
+        private val testClock = Clock.fixed(
+            Instant.parse("2026-09-24T10:00:00Z"),
+            ZoneId.of("UTC")
         )
+
+        @JvmStatic
+        @BeforeAll
+        fun setup() {
+            firestore = FirestoreOptions.newBuilder()
+                .setProjectId("client-ledger-dashboard")
+                .setHost("127.0.0.1:8080")
+                .setEmulatorHost("127.0.0.1:8080")
+                .setCredentials(NoCredentials.getInstance())
+                .build()
+                .service
+
+            setMaintenanceMode(MaintenanceMode.NORMAL)
+        }
+
+        @JvmStatic
+        @AfterAll
+        fun cleanup() {
+            firestore.close()
+        }
+
+        private fun setMaintenanceMode(mode: MaintenanceMode) {
+            MaintenanceRepository(firestore).save(
+                MaintenanceState(
+                    mode = mode,
+                    updatedAt = Instant.now()
+                )
+            )
+        }
     }
 
-    private fun toState(
-        snapshot: DocumentSnapshot
-    ): MonthlyRolloverState {
+    @Test
+    fun rolloverCopiesPreviousMonthStateToCurrentMonth() {
 
-        val ownerId =
-            snapshot.getString("ownerId")
-                ?: throw IllegalStateException(
-                    "Monthly rollover state is missing ownerId"
+        val ownerId = "owner-${System.nanoTime()}"
+
+        val previousMonth =
+            YearMonth.of(2026, 8)
+
+        val currentMonth =
+            YearMonth.of(2026, 9)
+
+        setMaintenanceMode(MaintenanceMode.NORMAL)
+
+        val clientService = createClientService()
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Rollover Client",
+                    phone = "9000000001",
+                    initialOpeningBalance = 5000
+                )
+            )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val globalSummaryRepository =
+            GlobalSummaryRepository(firestore)
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val summaryIndexBucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        /*
+         * ---------------------------------------------------------
+         * Verify previous month history exists.
+         * ---------------------------------------------------------
+         */
+        val previousHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = previousMonth.toString(),
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(previousHistory)
+
+        assertEquals(
+            5000,
+            previousHistory!!.closingBalance
+        )
+
+        /*
+         * ---------------------------------------------------------
+         * Create a known previous-month GlobalSummary.
+         *
+         * These values allow us to verify exactly which fields
+         * are carried forward and which fields are reset.
+         * ---------------------------------------------------------
+         */
+        val previousSummary =
+            GlobalSummary(
+                ownerId = ownerId,
+                yearMonth = previousMonth.toString(),
+
+                receivableClientCount = 10,
+                advanceClientCount = 2,
+                settledClientCount = 3,
+
+                totalReceivableAmount = 150000,
+                totalAdvanceAmount = 25000,
+
+                cashFlow = 50000,
+                netProfit = 30000,
+
+                totalInvoiceAmount = 70000,
+                totalInvoiceAmountWithGst = 82600,
+                totalGstAmount = 12600,
+                totalExpenseAmount = 20000,
+                totalPaymentAmount = 40000
+            )
+
+        writeGlobalSummary(previousSummary)
+
+        /*
+         * ---------------------------------------------------------
+         * Verify the previous summary was written correctly.
+         * ---------------------------------------------------------
+         */
+        val storedPreviousSummary =
+            globalSummaryRepository.find(
+                ownerId = ownerId,
+                yearMonth = previousMonth.toString()
+            )
+
+        assertNotNull(storedPreviousSummary)
+
+        assertEquals(
+            previousSummary,
+            storedPreviousSummary
+        )
+
+        /*
+         * ---------------------------------------------------------
+         * Create a known previous-month SummaryClientIndex.
+         *
+         * The bucket is intentionally obtained from the existing
+         * summary index structure. Rollover must copy this exact
+         * bucket ID instead of allocating a new bucket.
+         * ---------------------------------------------------------
+         */
+        val previousIndexBucketId =
+            summaryIndexBucketRepository.findBucketIds(
+                ownerId = ownerId,
+                yearMonth = previousMonth.toString(),
+                status = ClientType.RECEIVABLE
+            ).firstOrNull()
+                ?: summaryIndexBucketRepository.allocateBucket(
+                    ownerId = ownerId,
+                    yearMonth = previousMonth.toString(),
+                    status = ClientType.RECEIVABLE
                 )
 
-        val yearMonth =
-            snapshot.getString("yearMonth")
-                ?: throw IllegalStateException(
-                    "Monthly rollover state is missing yearMonth"
-                )
+        val previousIndex =
+            SummaryClientIndex(
+                clientId = client.id,
+                amount = 15000,
+                status = ClientType.RECEIVABLE
+            )
 
-        val status =
-            snapshot.getString("status")
-                ?.let(MonthlyRolloverState.Status::valueOf)
-                ?: throw IllegalStateException(
-                    "Monthly rollover state is missing status"
-                )
-
-        return MonthlyRolloverState(
+        summaryIndexRepository.insert(
             ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = status,
-            attempt = snapshot.getLong("attempt") ?: 0,
-            startedAt = snapshot.getTimestamp("startedAt")
-                ?.toDate()
-                ?.toInstant(),
-            completedAt = snapshot.getTimestamp("completedAt")
-                ?.toDate()
-                ?.toInstant(),
-            failedAt = snapshot.getTimestamp("failedAt")
-                ?.toDate()
-                ?.toInstant(),
-            error = snapshot.getString("error")
+            yearMonth = previousMonth.toString(),
+            bucketId = previousIndexBucketId,
+            index = previousIndex
+        )
+
+        /*
+         * ---------------------------------------------------------
+         * Start monthly rollover.
+         * ---------------------------------------------------------
+         */
+        setMaintenanceMode(MaintenanceMode.WRITE_BLOCKED)
+
+        val rolloverService =
+            createRolloverService()
+
+        rolloverService.rollover(
+            ownerId = ownerId,
+            previousYearMonth = previousMonth,
+            newYearMonth = currentMonth
+        )
+
+        /*
+         * =========================================================
+         * 1. HISTORY
+         * =========================================================
+         */
+        val currentHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = currentMonth.toString(),
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(currentHistory)
+
+        /*
+         * Carry-forward values.
+         */
+        assertEquals(
+            previousHistory.closingBalance,
+            currentHistory!!.openingBalance
+        )
+
+        assertEquals(
+            previousHistory.closingBalance,
+            currentHistory.closingBalance
+        )
+
+        assertEquals(
+            previousHistory.receivable,
+            currentHistory.receivable
+        )
+
+        assertEquals(
+            previousHistory.advance,
+            currentHistory.advance
+        )
+
+        assertEquals(
+            previousHistory.status,
+            currentHistory.status
+        )
+
+        /*
+         * New month activity must start at zero.
+         */
+        assertEquals(
+            0,
+            currentHistory.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            currentHistory.totalPayments
+        )
+
+        assertEquals(
+            0,
+            currentHistory.totalDiscount
+        )
+
+        assertEquals(
+            0,
+            currentHistory.totalExpenses
+        )
+
+        assertEquals(
+            0,
+            currentHistory.totalGstAmount
+        )
+
+        /*
+         * =========================================================
+         * 2. GLOBAL SUMMARY
+         * =========================================================
+         */
+        val currentSummary =
+            globalSummaryRepository.find(
+                ownerId = ownerId,
+                yearMonth = currentMonth.toString()
+            )
+
+        assertNotNull(currentSummary)
+
+        /*
+         * Client financial position must carry forward.
+         */
+        assertEquals(
+            previousSummary.receivableClientCount,
+            currentSummary!!.receivableClientCount
+        )
+
+        assertEquals(
+            previousSummary.advanceClientCount,
+            currentSummary.advanceClientCount
+        )
+
+        assertEquals(
+            previousSummary.settledClientCount,
+            currentSummary.settledClientCount
+        )
+
+        assertEquals(
+            previousSummary.totalReceivableAmount,
+            currentSummary.totalReceivableAmount
+        )
+
+        assertEquals(
+            previousSummary.totalAdvanceAmount,
+            currentSummary.totalAdvanceAmount
+        )
+
+        /*
+         * New month activity must reset.
+         */
+        assertEquals(
+            0,
+            currentSummary.cashFlow
+        )
+
+        assertEquals(
+            0,
+            currentSummary.netProfit
+        )
+
+        assertEquals(
+            0,
+            currentSummary.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            currentSummary.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            currentSummary.totalGstAmount
+        )
+
+        assertEquals(
+            0,
+            currentSummary.totalExpenseAmount
+        )
+
+        assertEquals(
+            0,
+            currentSummary.totalPaymentAmount
+        )
+
+        /*
+         * =========================================================
+         * 3. SUMMARY CLIENT INDEX
+         * =========================================================
+         *
+         * The same bucket ID must exist in the new month.
+         */
+        val currentBucketIds =
+            summaryIndexBucketRepository.findBucketIds(
+                ownerId = ownerId,
+                yearMonth = currentMonth.toString(),
+                status = ClientType.RECEIVABLE
+            )
+
+        assert(
+            currentBucketIds.contains(previousIndexBucketId)
+        ) {
+            "Expected rollover to copy bucket $previousIndexBucketId"
+        }
+
+        /*
+         * The client index must be copied into that exact bucket.
+         */
+        val currentIndexes =
+            summaryIndexRepository.findAllInBucket(
+                ownerId = ownerId,
+                yearMonth = currentMonth.toString(),
+                status = ClientType.RECEIVABLE,
+                bucketId = previousIndexBucketId
+            )
+
+        assertEquals(
+            1,
+            currentIndexes.size
+        )
+
+        val currentIndex =
+            currentIndexes.single()
+
+        assertEquals(
+            previousIndex.clientId,
+            currentIndex.clientId
+        )
+
+        assertEquals(
+            previousIndex.amount,
+            currentIndex.amount
+        )
+
+        assertEquals(
+            previousIndex.status,
+            currentIndex.status
+        )
+
+        /*
+         * =========================================================
+         * 4. ROLLOVER STATE
+         * =========================================================
+         */
+        val rolloverRepository =
+            MonthlyRolloverRepository(firestore)
+
+        val state =
+            rolloverRepository.find(
+                ownerId = ownerId,
+                yearMonth = currentMonth.toString()
+            )
+
+        assertNotNull(state)
+
+        assertEquals(
+            MonthlyRolloverState.Status.COMPLETED,
+            state!!.status
+        )
+
+        assertEquals(
+            1,
+            state.attempt
+        )
+
+        assertNotNull(state.startedAt)
+        assertNotNull(state.completedAt)
+
+        /*
+         * The system must be returned to NORMAL by the test
+         * so other tests are not affected.
+         */
+        setMaintenanceMode(MaintenanceMode.NORMAL)
+    }
+
+    private fun createRolloverService():
+            PerOwnerMonthlyRolloverService {
+
+        val transactionExecutor =
+            FirestoreTransactionExecutor(firestore)
+
+        val clientRepository =
+            ClientRepository(firestore)
+
+        val historyBucketRepository =
+            ClientHistoryBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val globalSummaryRepository =
+            GlobalSummaryRepository(firestore)
+
+        val summaryIndexBucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val maintenanceRepository =
+            MaintenanceRepository(firestore)
+
+        val ownerOperationLockRepository =
+            OwnerOperationLockRepository(
+                firestore = firestore,
+                maintenanceRepository = maintenanceRepository
+            )
+
+        val monthlyRolloverRepository =
+            MonthlyRolloverRepository(firestore)
+
+
+        return PerOwnerMonthlyRolloverService(
+            clientRepository = clientRepository,
+            clientHistoryRepository = historyRepository,
+            clientHistoryBucketRepository = historyBucketRepository,
+            globalSummaryRepository = globalSummaryRepository,
+            summaryClientIndexRepository = summaryIndexRepository,
+            summaryClientIndexBucketRepository = summaryIndexBucketRepository,
+            monthlyRolloverRepository = monthlyRolloverRepository,
+            ownerOperationLockRepository = ownerOperationLockRepository,
+            ownerOperationLockService = ownerOperationLockService,
+            transactionExecutor = transactionExecutor,
+            firestore = firestore,
+            clock = testClock
         )
     }
 
-    private fun toTimestamp(
-        instant: Instant
-    ): Timestamp =
-        Timestamp.ofTimeSecondsAndNanos(
-            instant.epochSecond,
-            instant.nano
-        )
+    private fun createClientService(): ClientService {
 
-    private fun validateOwnerId(
-        ownerId: String
-    ) {
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
+        val transactionExecutor =
+            FirestoreTransactionExecutor(firestore)
+
+        val clientRepository =
+            ClientRepository(firestore)
+
+        val historyBucketRepository =
+            ClientHistoryBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val globalSummaryRepository =
+            GlobalSummaryRepository(firestore)
+
+        val summaryIndexBucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val maintenanceRepository =
+            MaintenanceRepository(firestore)
+
+        val ownerOperationLockRepository =
+            OwnerOperationLockRepository(
+                firestore = firestore,
+                maintenanceRepository = maintenanceRepository
+            )
+
+        return ClientService(
+            firestore = firestore,
+            transactionExecutor = transactionExecutor,
+            clientRepository = clientRepository,
+            historyBucketRepository = historyBucketRepository,
+            historyRepository = historyRepository,
+            globalSummaryRepository = globalSummaryRepository,
+            summaryIndexBucketRepository = summaryIndexBucketRepository,
+            summaryIndexRepository = summaryIndexRepository,
+            ownerOperationLockRepository = ownerOperationLockRepository,
+            properties = properties,
+            clock = testClock,
+            ownerOperationLockService = ownerOperationLockService
+        )
     }
 
-    private fun validateYearMonth(
-        yearMonth: String
+    private fun writeGlobalSummary(
+        summary: GlobalSummary
     ) {
-        require(yearMonth.matches(Regex("\\d{4}-\\d{2}"))) {
-            "yearMonth must be in yyyy-MM format"
-        }
+        firestore
+            .collection("owners")
+            .document(summary.ownerId)
+            .collection("global_summary")
+            .document(summary.yearMonth)
+            .set(summary)
+            .get()
     }
 }
