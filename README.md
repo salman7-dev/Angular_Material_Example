@@ -1,236 +1,30 @@
-package com.clientledger.core.config
+      '  |____| .__|_| |_|_| |_\__, | / / / /
+     =========|_|==============|___/=/_/_/_/
 
-import org.springframework.boot.context.properties.ConfigurationProperties
+     :: Spring Boot ::                (v3.3.4)
 
-@ConfigurationProperties(prefix = "client-ledger")
-data class ClientLedgerProperties(
+    2026-10-01T16:46:02.701+05:30  INFO 26528 --- [    Test worker] c.c.r.l.OwnerOperationLockRepositoryTest : Starting OwnerOperationLockRepositoryTest using Java 21.0.12 with PID 26528 (started by khans in D:\New folder\client-ledger-backend)
+    2026-10-01T16:46:02.702+05:30  INFO 26528 --- [    Test worker] c.c.r.l.OwnerOperationLockRepositoryTest : No active profile set, falling back to 1 default profile: "default"  
+    =================================================
+     FIRESTORE CONFIGURATION
+    =================================================
+     Environment : CLOUD
+     Project ID  : client-ledger-dashboard
+     Firestore   : FIREBASE CLOUD
+    =================================================
+    2026-10-01T16:46:04.892+05:30  WARN 26528 --- [    Test worker] .s.s.UserDetailsServiceAutoConfiguration : 
 
-    val mode: ApplicationMode = ApplicationMode.EMULATOR,
+    Using generated security password: b5fcb863-9de3-4baa-b9d3-d84ffc04c263
 
-    val history: HistoryProperties = HistoryProperties(),
+    This generated password is for development use only. Your security configuration must be updated before running your application in production.
 
-    val summary: SummaryProperties = SummaryProperties(),
+    2026-10-01T16:46:04.895+05:30  INFO 26528 --- [    Test worker] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with UserDetailsService bean with name inMemoryUserDetailsManager
+    2026-10-01T16:46:05.011+05:30  INFO 26528 --- [    Test worker] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint beneath base path '/actuator'
+    2026-10-01T16:46:05.141+05:30  INFO 26528 --- [    Test worker] c.c.r.l.OwnerOperationLockRepositoryTest : Started OwnerOperationLockRepositoryTest in 2.468 seconds (process running for 44.719)
 
-    val firestore: FireStoreProperties = FireStoreProperties(),
+SummaryClientIndexBucketRepositoryTest STANDARD_OUT
+    2026-10-01T16:46:14.790+05:30  INFO 26528 --- [    Test worker] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.cl
+ientledger.core.repository.summary.SummaryClientIndexBucketRepositoryTest]: SummaryClientIndexBucketRepositoryTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+    2026-10-01T16:46:14.843+05:30  INFO 26528 --- [    Test worker] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.clientledger.core.ClientLedgerApplication for test class com.clientledger.core.repository.summary.SummaryClientIndexBucketRepositoryTest
 
-    val auth: AuthProperties = AuthProperties(),
-
-    val adUnlock: AdUnlockProperties = AdUnlockProperties(),
-
-    val trial: TrialProperties = TrialProperties(),
-
-    val maintenance: MaintenanceProperties = MaintenanceProperties(),
-
-    val lock: LockProperties = LockProperties(),
-
-    val operation: OperationProperties = OperationProperties()
-) {
-
-    enum class ApplicationMode {
-        EMULATOR,
-        CLOUD
-    }
-
-    data class HistoryProperties(
-        val editableMonths: Int = 8,
-        val bucketCapacity: Int = 100
-    )
-
-    data class FireStoreProperties(
-        val projectId: String = "",
-        val emulatorHost: String = "127.0.0.1:8080"
-    )
-
-    data class SummaryProperties(
-        val indexBucketCapacity: Int = 300
-    )
-
-    data class AuthProperties(
-        val enabled: Boolean = true,
-        val webApiKey: String = "",
-        val emulatorHost: String = "127.0.0.1:9099",
-        val credentialsPath: String = "",
-        val localOwnerId: String = ""
-    )
-
-    data class AdUnlockProperties(
-        val durationMinutes: Long = 10
-    )
-
-    data class TrialProperties(
-        val months: Long = 3
-    )
-
-    data class MaintenanceProperties(
-        val enabled: Boolean = true,
-        val timezone: String = "Asia/Kolkata"
-    )
-
-    data class LockProperties(
-        val leaseSeconds: Long = 30,
-        val heartbeatSeconds: Long = 10,
-        val acquireRetrySeconds: Long = 1,
-        val acquireTimeoutSeconds: Long = 30
-    )
-
-    data class OperationProperties(
-        val timeoutSeconds: Long = 300
-    )
-}package com.clientledger.core.service.maintenance
-
-import com.clientledger.core.domain.MaintenanceState
-import com.clientledger.core.enums.MaintenanceMode
-import com.clientledger.core.repository.maintenance.MaintenanceRepository
-import com.clientledger.core.service.monthlyrollover.MonthlyRolloverOrchestrator
-import org.springframework.stereotype.Service
-import java.time.Clock
-import java.time.Instant
-import java.time.YearMonth
-
-@Service
-class MaintenanceService(
-    private val maintenanceRepository: MaintenanceRepository,
-    private val monthlyRolloverOrchestrator: MonthlyRolloverOrchestrator,
-    private val clock: Clock
-) {
-
-    @Volatile
-    private var currentState: MaintenanceState =
-        maintenanceRepository.find()
-            ?: MaintenanceState(
-                mode = MaintenanceMode.NORMAL,
-                updatedAt = Instant.now(clock)
-            )
-
-    fun getCurrentState(): MaintenanceState {
-        return currentState
-    }
-
-    fun blockWrites(reason: String? = null): MaintenanceState {
-        val state = MaintenanceState(
-            mode = MaintenanceMode.WRITE_BLOCKED,
-            updatedAt = Instant.now(clock),
-            reason = reason
-        )
-
-        maintenanceRepository.save(state)
-        currentState = state
-
-        return state
-    }
-
-    /**
-     * Attempts to atomically establish the monthly write freeze.
-     *
-     * Returns true only for the instance that successfully
-     * established WRITE_BLOCKED in Firestore.
-     */
-    fun tryBlockWrites(reason: String? = null): Boolean {
-
-        val state = MaintenanceState(
-            mode = MaintenanceMode.WRITE_BLOCKED,
-            updatedAt = Instant.now(clock),
-            reason = reason
-        )
-
-        val acquired = maintenanceRepository.tryBlockWrites(state)
-
-        if (acquired) {
-            currentState = state
-            return true
-        }
-
-        /*
-         * Another instance already established the maintenance state.
-         * Refresh this instance's local state so its HTTP gate also
-         * reflects the distributed Firestore state.
-         */
-        currentState =
-            maintenanceRepository.find()
-                ?: MaintenanceState(
-                    mode = MaintenanceMode.NORMAL,
-                    updatedAt = Instant.now(clock)
-                )
-
-        return false
-    }
-
-    fun performMonthlyRollover() {
-        val currentYearMonth = YearMonth.now(clock)
-        val previousYearMonth = currentYearMonth.minusMonths(1)
-
-        monthlyRolloverOrchestrator.rollover(
-            previousYearMonth = previousYearMonth,
-            newYearMonth = currentYearMonth
-        )
-    }
-
-    fun restoreNormal(reason: String? = null): MaintenanceState {
-        val state = MaintenanceState(
-            mode = MaintenanceMode.NORMAL,
-            updatedAt = Instant.now(clock),
-            reason = reason
-        )
-
-        maintenanceRepository.save(state)
-        currentState = state
-
-        return state
-    }
-}
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health
-server:
-  port: 8081
-client-ledger:
-  mode: CLOUD  # change CLOUD OR EMULATOR if you want to use and below line uncomment in auth
-  history:
-    editable-months: 2
-    bucket-capacity: 100
-  summary:
-    index-bucket-capacity: 300
-  ad-unlock:
-    duration-minutes: 10
-  trial:
-    months: 6
-  maintenance:
-    enabled: true
-    timezone: "Asia/Kolkata"
-  lock:
-    lease-seconds: 30
-    heartbeat-seconds: 10
-    acquire-retry-seconds: 1
-    acquire-timeout-seconds: 30
-  operation:
-    timeout-seconds: 300
-
-    # =====================================================
-    # FIREBASE EMULATOR
-    # Uncomment these for cloud testing
-    # always enabled true
-    # =====================================================
-
-#  firestore:
-#      project-id: "client-ledger-dashboard"
-#      emulator-host: "127.0.0.1:8080"
-#  auth:
-#      enabled: true
-#      emulator-host: "127.0.0.1:9099"
-#      local-owner-id: "local-owner"
-
-
-    # =====================================================
-    # FIREBASE CLOUD
-    # Uncomment these for cloud testing
-    # always enabled true
-    # =====================================================
-  firestore:
-    project-id: "client-ledger-dashboard"
-  auth:
-    enabled: true
-    web-api-key: "AIzaSyA94DV2tBkFFgL_8hYclLc2w_qLzmYEgdY"
-    credentials-path: "classpath:client-ledger-service-account.json"
+ClientServiceTest STANDARD_OUT
