@@ -1,206 +1,284 @@
 package com.clientledger.core.service.monthlyrollover
 
-import com.clientledger.core.config.ClientLedgerProperties
+import com.clientledger.core.domain.MonthlyRolloverRetry
+import com.clientledger.core.repository.monthlyrollover.GlobalMonthlyRolloverJobRepository
 import com.clientledger.core.repository.monthlyrollover.MonthlyRolloverRetryRepository
+import com.clientledger.core.repository.owner.OwnerRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
+import java.time.Clock
 import java.time.YearMonth
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.Future
 
 @Service
-class FailedOwnerRecoveryService(
+class MonthlyRolloverOrchestrator(
+    private val ownerRepository: OwnerRepository,
+    private val globalMonthlyRolloverJobRepository:
+    GlobalMonthlyRolloverJobRepository,
     private val monthlyRolloverRetryRepository:
     MonthlyRolloverRetryRepository,
     private val perOwnerMonthlyRolloverService:
     PerOwnerMonthlyRolloverService,
-    private val properties: ClientLedgerProperties
+    private val clock: Clock,
+    @Value("\${server.port}") private val serverPort: String
 ) {
 
     private val logger =
-        LoggerFactory.getLogger(FailedOwnerRecoveryService::class.java)
+        LoggerFactory.getLogger(MonthlyRolloverOrchestrator::class.java)
 
-    fun recover(
+    /**
+     * Executes the global monthly rollover when this instance
+     * successfully acquires the global job.
+     *
+     * Returns:
+     * - true  -> this instance acquired and completed the global job
+     * - false -> another instance already owns the job
+     *
+     * Unexpected failures are propagated to the caller.
+     */
+    fun rollover(
         previousYearMonth: YearMonth,
         newYearMonth: YearMonth
-    ) {
+    ): Boolean {
+
         require(
             newYearMonth == previousYearMonth.plusMonths(1)
         ) {
             "newYearMonth must immediately follow previousYearMonth"
         }
 
-        val yearMonth = newYearMonth.toString()
+        val currentMonth =
+            newYearMonth.toString()
 
-        val configuration =
-            properties.maintenance.failedOwnerRecovery
+        logger.info(
+            "[MONTHLY-ROLLOVER] Attempting global job acquisition | yearMonth={} | instancePort={}",
+            currentMonth,
+            serverPort
+        )
 
-        require(configuration.maxAttempts > 0) {
-            "maintenance.failed-owner-recovery.max-attempts must be greater than 0"
-        }
-
-        require(configuration.retryDelayMinutes >= 0) {
-            "maintenance.failed-owner-recovery.retry-delay-minutes must not be negative"
-        }
-
-        repeat(configuration.maxAttempts) { attemptIndex ->
-
-            val attempt = attemptIndex + 1
-
-            /*
-             * IMPORTANT:
-             * Read the complete failed-owner list only once
-             * for this recovery attempt.
-             *
-             * No findAll() is performed inside owner threads.
-             */
-            val failedOwners =
-                monthlyRolloverRetryRepository.findAll(yearMonth)
-
-            if (failedOwners.isEmpty()) {
-                logger.info(
-                    "[MONTHLY-ROLLOVER-RECOVERY] Recovery completed - no failed owners | yearMonth={} | attempt={}",
-                    yearMonth,
-                    attempt
-                )
-                return
-            }
-
-            logger.info(
-                "[MONTHLY-ROLLOVER-RECOVERY] Recovery attempt started | yearMonth={} | attempt={}/{} | failedOwnerCount={}",
-                yearMonth,
-                attempt,
-                configuration.maxAttempts,
-                failedOwners.size
+        val job =
+            globalMonthlyRolloverJobRepository.tryStart(
+                yearMonth = currentMonth,
+                startedAt = clock.instant()
             )
-
-            /*
-             * Every owner from this single snapshot is processed
-             * independently in a virtual thread.
-             */
-            Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-
-                val futures =
-                    failedOwners.map { retry ->
-
-                        executor.submit {
-                            recoverOwner(
-                                ownerId = retry.ownerId,
-                                yearMonth = yearMonth,
-                                previousYearMonth = previousYearMonth,
-                                newYearMonth = newYearMonth
-                            )
-                        }
-                    }
-
-                /*
-                 * Wait until every owner in this attempt has finished.
-                 */
-                futures.forEach { future ->
-                    try {
-                        future.get()
-                    } catch (exception: Exception) {
-                        logger.error(
-                            "[MONTHLY-ROLLOVER-RECOVERY] Unexpected recovery task failure | yearMonth={}",
-                            yearMonth,
-                            exception
-                        )
-                    }
-                }
-            }
-
-            logger.info(
-                "[MONTHLY-ROLLOVER-RECOVERY] Recovery attempt completed | yearMonth={} | attempt={}/{}",
-                yearMonth,
-                attempt,
-                configuration.maxAttempts
-            )
-
-            /*
-             * Do not wait after the final attempt.
-             * The next iteration performs the next findAll().
-             */
-            if (attempt < configuration.maxAttempts) {
-                try {
-                    logger.info(
-                        "[MONTHLY-ROLLOVER-RECOVERY] Waiting before next recovery attempt | yearMonth={} | delayMinutes={}",
-                        yearMonth,
-                        configuration.retryDelayMinutes
-                    )
-
-                    TimeUnit.MINUTES.sleep(
-                        configuration.retryDelayMinutes
-                    )
-
-                } catch (exception: InterruptedException) {
-                    Thread.currentThread().interrupt()
-
-                    throw IllegalStateException(
-                        "Failed-owner recovery interrupted: yearMonth=$yearMonth",
-                        exception
-                    )
-                }
-            }
-        }
 
         /*
-         * Five attempts were completed.
+         * Another application instance already owns
+         * this monthly rollover job.
          *
-         * Any remaining retry documents are intentionally preserved.
-         * They can be recovered by a later recovery/reconciliation flow.
+         * This instance must NOT restore NORMAL or perform
+         * any rollover recovery.
          */
-        logger.warn(
-            "[MONTHLY-ROLLOVER-RECOVERY] Maximum recovery attempts exhausted | yearMonth={} | maxAttempts={}",
-            yearMonth,
-            configuration.maxAttempts
+        if (job == null) {
+            logger.info(
+                "[MONTHLY-ROLLOVER] Another instance already owns the job - EXIT | yearMonth={} | instancePort={}",
+                currentMonth,
+                serverPort
+            )
+
+            return false
+        }
+
+        logger.info(
+            "[MONTHLY-ROLLOVER] GLOBAL JOB ACQUIRED | yearMonth={} | instancePort={} | status={}",
+            currentMonth,
+            serverPort,
+            job.status
         )
+
+        val executor =
+            Executors.newVirtualThreadPerTaskExecutor()
+
+        try {
+
+            processOwners(
+                executor = executor,
+                previousYearMonth = previousYearMonth,
+                newYearMonth = newYearMonth
+            )
+
+            /*
+             * At this point all owner pages have been processed.
+             *
+             * Individual owner failures were isolated and their
+             * retry entries were successfully persisted.
+             *
+             * Only after the global orchestration itself completes
+             * do we mark the global job COMPLETED.
+             */
+            globalMonthlyRolloverJobRepository.markCompleted(
+                yearMonth = currentMonth,
+                completedAt = clock.instant()
+            )
+
+            logger.info(
+                "[MONTHLY-ROLLOVER] GLOBAL JOB COMPLETED | yearMonth={} | instancePort={}",
+                currentMonth,
+                serverPort
+            )
+
+            /*
+             * true means this exact instance:
+             * 1. acquired the global job
+             * 2. completed global owner processing
+             * 3. successfully recorded all failed-owner retries
+             * 4. successfully marked the job COMPLETED
+             *
+             * MaintenanceService can now safely perform the
+             * WRITE_BLOCKED -> NORMAL transition.
+             */
+            return true
+
+        } finally {
+            executor.close()
+        }
     }
 
-    private fun recoverOwner(
-        ownerId: String,
-        yearMonth: String,
+    private fun processOwners(
+        executor: ExecutorService,
         previousYearMonth: YearMonth,
         newYearMonth: YearMonth
     ) {
-        try {
+        var cursor: String? = null
 
-            logger.info(
-                "[MONTHLY-ROLLOVER-RECOVERY] Starting owner recovery | ownerId={} | yearMonth={}",
-                ownerId,
-                yearMonth
+        while (true) {
+
+            val page =
+                ownerRepository.findPage(
+                    size = OWNER_PAGE_SIZE,
+                    cursor = cursor
+                )
+
+            if (page.content.isEmpty()) {
+                break
+            }
+
+            val futures =
+                page.content.map { ownerId ->
+
+                    executor.submit<Boolean> {
+                        processOwner(
+                            ownerId = ownerId,
+                            previousYearMonth = previousYearMonth,
+                            newYearMonth = newYearMonth
+                        )
+                    }
+                }
+
+            waitForPage(
+                futures = futures
             )
 
-            /*
-             * PerOwnerMonthlyRolloverService already acquires
-             * the owner operation lock and validates the fence.
-             */
+            cursor = page.nextCursor
+
+            if (cursor == null) {
+                break
+            }
+        }
+    }
+
+    /**
+     * Returns true when the owner processing completed safely.
+     *
+     * An owner rollover failure is considered safely handled only
+     * when its retry entry is successfully persisted.
+     *
+     * Returns false when the retry entry could not be persisted.
+     */
+    private fun processOwner(
+        ownerId: String,
+        previousYearMonth: YearMonth,
+        newYearMonth: YearMonth
+    ): Boolean {
+        try {
+
             perOwnerMonthlyRolloverService.rollover(
                 ownerId = ownerId,
                 previousYearMonth = previousYearMonth,
                 newYearMonth = newYearMonth
             )
 
-
-            logger.info(
-                "[MONTHLY-ROLLOVER-RECOVERY] Owner recovery SUCCESS | ownerId={} | yearMonth={}",
-                ownerId,
-                yearMonth
-            )
+            return true
 
         } catch (exception: Exception) {
 
-            /*
-             * Keep the retry entry.
-             *
-             * It will be picked up by the next recovery attempt.
-             */
             logger.error(
-                "[MONTHLY-ROLLOVER-RECOVERY] Owner recovery FAILED | ownerId={} | yearMonth={}",
+                "Monthly rollover failed for ownerId={}, yearMonth={}",
                 ownerId,
-                yearMonth,
+                newYearMonth,
                 exception
             )
+
+            return try {
+
+                monthlyRolloverRetryRepository.save(
+                    MonthlyRolloverRetry(
+                        yearMonth = newYearMonth.toString(),
+                        ownerId = ownerId,
+                        failedAt = clock.instant(),
+                        error = exception.message
+                    )
+                )
+
+                logger.info(
+                    "[MONTHLY-ROLLOVER] Failed owner recorded for recovery | ownerId={} | yearMonth={}",
+                    ownerId,
+                    newYearMonth
+                )
+
+                true
+
+            } catch (retryException: Exception) {
+
+                logger.error(
+                    "[MONTHLY-ROLLOVER] CRITICAL: Failed to record owner retry | ownerId={} | yearMonth={}",
+                    ownerId,
+                    newYearMonth,
+                    retryException
+                )
+
+                false
+            }
         }
+    }
+
+    private fun waitForPage(
+        futures: List<Future<Boolean>>
+    ) {
+        futures.forEach { future ->
+
+            try {
+
+                val completedSafely = future.get()
+
+                if (!completedSafely) {
+                    throw IllegalStateException(
+                        "Failed to persist monthly rollover retry entry"
+                    )
+                }
+
+            } catch (exception: Exception) {
+
+                /*
+                 * A failure to persist the retry entry means the
+                 * failed owner could be lost from recovery.
+                 *
+                 * Therefore the global rollover must fail instead
+                 * of marking the global job COMPLETED.
+                 */
+                throw IllegalStateException(
+                    "Monthly rollover page processing failed",
+                    exception
+                )
+            }
+        }
+    }
+
+    companion object {
+        private const val OWNER_PAGE_SIZE = 100
     }
 }
 
