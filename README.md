@@ -1,67 +1,58 @@
-package com.clientledger.core.repository.client
+package com.clientledger.core.repository.monthlyrollover
 
-import com.clientledger.core.domain.Address
-import com.clientledger.core.domain.Client
-import com.clientledger.core.domain.ClientType
-import com.clientledger.core.pagination.PageResult
+import com.clientledger.core.domain.MonthlyRolloverState
 import com.google.cloud.Timestamp
+import com.google.cloud.firestore.DocumentReference
 import com.google.cloud.firestore.DocumentSnapshot
 import com.google.cloud.firestore.Firestore
-import com.google.cloud.firestore.Transaction
 import org.springframework.stereotype.Repository
 import java.time.Instant
-import java.util.Base64
-import java.util.Date
 
 @Repository
-class ClientRepository(
+class MonthlyRolloverRepository(
     private val firestore: Firestore
 ) {
 
-    private fun clientCollection(ownerId: String) =
-        firestore
+    private fun rolloverDocument(
+        ownerId: String,
+        yearMonth: String
+    ): DocumentReference {
+
+        validateOwnerId(ownerId)
+        validateYearMonth(yearMonth)
+
+        return firestore
             .collection("owners")
             .document(ownerId)
-            .collection("clients")
-
-    fun create(client: Client): Client {
-        require(client.ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
-
-        require(client.id.isNotBlank()) {
-            "client id must not be blank"
-        }
-
-        clientCollection(client.ownerId)
-            .document(client.id)
-            .set(
-                client.copy(
-                    createdAt = client.createdAt,
-                    updatedAt = client.updatedAt
-                )
-            )
-            .get()
-
-        return client
+            .collection("monthly_rollover")
+            .document(yearMonth)
     }
 
-    fun findById(
+    private fun retryOwnerDocument(
         ownerId: String,
-        clientId: String
-    ): Client? {
+        yearMonth: String
+    ): DocumentReference {
 
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
+        validateOwnerId(ownerId)
+        validateYearMonth(yearMonth)
 
-        require(clientId.isNotBlank()) {
-            "clientId must not be blank"
-        }
+        return firestore
+            .collection("system")
+            .document("monthly_rollover_retry")
+            .collection(yearMonth)
+            .document(ownerId)
+    }
+
+    fun find(
+        ownerId: String,
+        yearMonth: String
+    ): MonthlyRolloverState? {
 
         val snapshot =
-            clientCollection(ownerId)
-                .document(clientId)
+            rolloverDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
                 .get()
                 .get()
 
@@ -69,341 +60,357 @@ class ClientRepository(
             return null
         }
 
-        return toClient(snapshot)
+        return toState(snapshot)
     }
 
-    fun findPage(
+    fun createPending(
         ownerId: String,
-        size: Int,
-        cursor: String?
-    ): PageResult<Client> {
+        yearMonth: String
+    ): MonthlyRolloverState {
 
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
+        val rolloverReference =
+            rolloverDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
 
-        require(size > 0) {
-            "size must be greater than zero"
-        }
+        return firestore
+            .runTransaction { transaction ->
 
-        val clientCollection =
-            clientCollection(ownerId)
+                val existing =
+                    transaction
+                        .get(rolloverReference)
+                        .get()
 
-        val query =
-            clientCollection
-                .orderBy("__name__")
-                .let { baseQuery ->
-
-                    val clientId =
-                        decodeCursor(cursor)
-
-                    if (clientId != null) {
-                        baseQuery.startAfter(clientId)
-                    } else {
-                        baseQuery
-                    }
+                require(!existing.exists()) {
+                    "Monthly rollover state already exists: $ownerId/$yearMonth"
                 }
-                .limit(size + 1)
 
-        val documents =
-            query
-                .get()
-                .get()
-                .documents
+                val state =
+                    MonthlyRolloverState(
+                        ownerId = ownerId,
+                        yearMonth = yearMonth,
+                        status = MonthlyRolloverState.Status.PENDING
+                    )
 
-        val hasNext =
-            documents.size > size
+                transaction.set(
+                    rolloverReference,
+                    toDocument(state)
+                )
 
-        val clients =
-            if (hasNext) {
-                documents
-                    .take(size)
-                    .map(::toClient)
-            } else {
-                documents
-                    .map(::toClient)
+                state
             }
+            .get()
+    }
 
-        if (!hasNext) {
-            return PageResult(
-                content = clients,
-                hasNext = false,
-                nextCursor = null
+    fun markRunning(
+        ownerId: String,
+        yearMonth: String,
+        startedAt: Instant
+    ): MonthlyRolloverState {
+
+        val rolloverReference =
+            rolloverDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
             )
+
+        val retryReference =
+            retryOwnerDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
+
+        return firestore
+            .runTransaction { transaction ->
+
+                val rolloverSnapshot =
+                    transaction
+                        .get(rolloverReference)
+                        .get()
+
+                require(rolloverSnapshot.exists()) {
+                    "Monthly rollover state does not exist: $ownerId/$yearMonth"
+                }
+
+                val current =
+                    toState(rolloverSnapshot)
+
+                require(
+                    current.status !=
+                            MonthlyRolloverState.Status.COMPLETED
+                ) {
+                    "Monthly rollover is already completed: $ownerId/$yearMonth"
+                }
+
+                val updated =
+                    current.copy(
+                        status = MonthlyRolloverState.Status.RUNNING,
+                        attempt = current.attempt + 1,
+                        startedAt = startedAt,
+                        completedAt = null,
+                        failedAt = null,
+                        error = null
+                    )
+
+                transaction.set(
+                    rolloverReference,
+                    toDocument(updated)
+                )
+
+                /*
+                 * If this is a retry of a failed owner,
+                 * remove the retry lookup entry atomically.
+                 */
+                transaction.delete(retryReference)
+
+                updated
+            }
+            .get()
+    }
+
+    fun markCompleted(
+        ownerId: String,
+        yearMonth: String,
+        completedAt: Instant
+    ): MonthlyRolloverState {
+
+        val rolloverReference =
+            rolloverDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
+
+        val retryReference =
+            retryOwnerDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
+
+        return firestore
+            .runTransaction { transaction ->
+
+                val rolloverSnapshot =
+                    transaction
+                        .get(rolloverReference)
+                        .get()
+
+                require(rolloverSnapshot.exists()) {
+                    "Monthly rollover state does not exist: $ownerId/$yearMonth"
+                }
+
+                val current =
+                    toState(rolloverSnapshot)
+
+                require(
+                    current.status ==
+                            MonthlyRolloverState.Status.RUNNING
+                ) {
+                    "Monthly rollover must be RUNNING before completion: $ownerId/$yearMonth"
+                }
+
+                val updated =
+                    current.copy(
+                        status = MonthlyRolloverState.Status.COMPLETED,
+                        completedAt = completedAt,
+                        failedAt = null,
+                        error = null
+                    )
+
+                transaction.set(
+                    rolloverReference,
+                    toDocument(updated)
+                )
+
+                /*
+                 * Successful completion must remove the owner
+                 * from the failed-owner retry index.
+                 */
+                transaction.delete(retryReference)
+
+                updated
+            }
+            .get()
+    }
+
+    fun markFailed(
+        ownerId: String,
+        yearMonth: String,
+        failedAt: Instant,
+        error: String?
+    ): MonthlyRolloverState {
+
+        val rolloverReference =
+            rolloverDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
+
+        val retryReference =
+            retryOwnerDocument(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
+
+        return firestore
+            .runTransaction { transaction ->
+
+                val rolloverSnapshot =
+                    transaction
+                        .get(rolloverReference)
+                        .get()
+
+                require(rolloverSnapshot.exists()) {
+                    "Monthly rollover state does not exist: $ownerId/$yearMonth"
+                }
+
+                val current =
+                    toState(rolloverSnapshot)
+
+                require(
+                    current.status ==
+                            MonthlyRolloverState.Status.RUNNING
+                ) {
+                    "Monthly rollover must be RUNNING before failure: $ownerId/$yearMonth"
+                }
+
+                val updated =
+                    current.copy(
+                        status = MonthlyRolloverState.Status.FAILED,
+                        failedAt = failedAt,
+                        error = error
+                    )
+
+                transaction.set(
+                    rolloverReference,
+                    toDocument(updated)
+                )
+
+                /*
+                 * Owner remains discoverable for the normal
+                 * recovery job.
+                 */
+                transaction.set(
+                    retryReference,
+                    mapOf(
+                        "ownerId" to ownerId,
+                        "yearMonth" to yearMonth,
+                        "status" to MonthlyRolloverState.Status.FAILED.name,
+                        "attempt" to updated.attempt,
+                        "failedAt" to failedAt.let(::toTimestamp),
+                        "error" to error
+                    )
+                )
+
+                updated
+            }
+            .get()
+    }
+
+    fun findFailedOwners(
+        yearMonth: String
+    ): List<String> {
+
+        validateYearMonth(yearMonth)
+
+        val snapshot =
+            firestore
+                .collection("system")
+                .document("monthly_rollover_retry")
+                .collection(yearMonth)
+                .whereEqualTo(
+                    "status",
+                    MonthlyRolloverState.Status.FAILED.name
+                )
+                .get()
+                .get()
+
+        return snapshot.documents.map { document ->
+            document.getString("ownerId")
+                ?: throw IllegalStateException(
+                    "Monthly rollover retry entry is missing ownerId: ${document.id}"
+                )
         }
+    }
 
-        val lastClient =
-            clients.last()
+    private fun toDocument(
+        state: MonthlyRolloverState
+    ): Map<String, Any?> {
 
-        return PageResult(
-            content = clients,
-            hasNext = true,
-            nextCursor = encodeCursor(lastClient.id)
+        return mapOf(
+            "ownerId" to state.ownerId,
+            "yearMonth" to state.yearMonth,
+            "status" to state.status.name,
+            "attempt" to state.attempt,
+            "startedAt" to state.startedAt?.let(::toTimestamp),
+            "completedAt" to state.completedAt?.let(::toTimestamp),
+            "failedAt" to state.failedAt?.let(::toTimestamp),
+            "error" to state.error
         )
     }
 
-    fun exists(
-        ownerId: String,
-        clientId: String
-    ): Boolean {
-
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
-
-        require(clientId.isNotBlank()) {
-            "clientId must not be blank"
-        }
-
-        return clientCollection(ownerId)
-            .document(clientId)
-            .get()
-            .get()
-            .exists()
-    }
-
-    private fun encodeCursor(
-        clientId: String
-    ): String {
-
-        require(clientId.isNotBlank()) {
-            "clientId must not be blank"
-        }
-
-        val raw =
-            "client:$clientId"
-
-        return Base64
-            .getUrlEncoder()
-            .withoutPadding()
-            .encodeToString(
-                raw.toByteArray()
-            )
-    }
-
-    private fun decodeCursor(
-        cursor: String?
-    ): String? {
-
-        if (cursor.isNullOrBlank()) {
-            return null
-        }
-
-        return try {
-
-            val decoded =
-                String(
-                    Base64
-                        .getUrlDecoder()
-                        .decode(cursor)
-                )
-
-            require(
-                decoded.startsWith("client:")
-            )
-
-            val clientId =
-                decoded.removePrefix("client:")
-
-            require(
-                clientId.isNotBlank()
-            )
-
-            clientId
-
-        } catch (exception: Exception) {
-
-            throw IllegalArgumentException(
-                "Invalid cursor",
-                exception
-            )
-        }
-    }
-
-
-
-    private fun toClient(
+    private fun toState(
         snapshot: DocumentSnapshot
-    ): Client {
+    ): MonthlyRolloverState {
 
-        return Client(
-            id =
-            snapshot.getString("id")
-                ?: "",
-
-            ownerId =
+        val ownerId =
             snapshot.getString("ownerId")
-                ?: "",
-
-            name =
-            snapshot.getString("name")
-                ?: "",
-
-            phone =
-            snapshot.getString("phone")
-                ?: "",
-
-            email =
-            snapshot.getString("email")
-                ?: "",
-
-            gstNumber =
-            snapshot.getString("gstNumber"),
-
-            address =
-            toAddress(
-                snapshot.get("address")
-            ),
-
-            initialOpeningBalance =
-            snapshot.getLong("initialOpeningBalance")
-                ?: 0,
-
-            latestAmount =
-            snapshot.getLong("latestAmount")
-                ?: 0,
-
-            type =
-            snapshot.getString("type")
-                ?.let { ClientType.valueOf(it) }
-                ?: ClientType.SETTLED,
-
-            bucketId =
-            snapshot.getString("bucketId")
-                ?: "",
-
-            createdAt =
-            toInstant(
-                snapshot.get("createdAt")
-            ),
-
-            updatedAt =
-            toInstant(
-                snapshot.get("updatedAt")
-            )
-        )
-    }
-
-    private fun toAddress(
-        value: Any?
-    ): Address? {
-
-        val data =
-            value as? Map<*, *>
-                ?: return null
-
-        return Address(
-            line1 =
-            data["line1"] as? String
-                ?: "",
-
-            line2 =
-            data["line2"] as? String,
-
-            city =
-            data["city"] as? String
-                ?: "",
-
-            state =
-            data["state"] as? String
-                ?: "",
-
-            pinCode =
-            data["pinCode"] as? String
-                ?: "",
-
-            country =
-            data["country"] as? String
-                ?: "India"
-        )
-    }
-
-    private fun toInstant(
-        value: Any?
-    ): Instant {
-
-        return when (value) {
-
-            is Instant ->
-                value
-
-            is Date ->
-                value.toInstant()
-
-            is Timestamp ->
-                value.toDate().toInstant()
-
-            is Map<*, *> -> {
-
-                val seconds =
-                    (value["seconds"] as? Number)
-                        ?.toLong()
-                        ?: return Instant.EPOCH
-
-                val nanos =
-                    (value["nanos"] as? Number)
-                        ?.toInt()
-                        ?: 0
-
-                Instant.ofEpochSecond(
-                    seconds,
-                    nanos.toLong()
+                ?: throw IllegalStateException(
+                    "Monthly rollover state is missing ownerId"
                 )
-            }
 
-            else ->
-                Instant.EPOCH
-        }
+        val yearMonth =
+            snapshot.getString("yearMonth")
+                ?: throw IllegalStateException(
+                    "Monthly rollover state is missing yearMonth"
+                )
+
+        val status =
+            snapshot.getString("status")
+                ?.let(MonthlyRolloverState.Status::valueOf)
+                ?: throw IllegalStateException(
+                    "Monthly rollover state is missing status"
+                )
+
+        return MonthlyRolloverState(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            status = status,
+            attempt = snapshot.getLong("attempt") ?: 0,
+            startedAt = snapshot.getTimestamp("startedAt")
+                ?.toDate()
+                ?.toInstant(),
+            completedAt = snapshot.getTimestamp("completedAt")
+                ?.toDate()
+                ?.toInstant(),
+            failedAt = snapshot.getTimestamp("failedAt")
+                ?.toDate()
+                ?.toInstant(),
+            error = snapshot.getString("error")
+        )
     }
 
-    fun existsInTransaction(
-        transaction: Transaction,
-        ownerId: String,
-        clientId: String
-    ): Boolean {
+    private fun toTimestamp(
+        instant: Instant
+    ): Timestamp =
+        Timestamp.ofTimeSecondsAndNanos(
+            instant.epochSecond,
+            instant.nano
+        )
 
+    private fun validateOwnerId(
+        ownerId: String
+    ) {
         require(ownerId.isNotBlank()) {
             "ownerId must not be blank"
         }
-
-        require(clientId.isNotBlank()) {
-            "clientId must not be blank"
-        }
-
-        return transaction
-            .get(
-                clientCollection(ownerId)
-                    .document(clientId)
-            )
-            .get()
-            .exists()
     }
 
-    fun createInTransaction(
-        transaction: Transaction,
-        client: Client
-    ): Client {
-
-        require(client.ownerId.isNotBlank()) {
-            "client ownerId must not be blank"
+    private fun validateYearMonth(
+        yearMonth: String
+    ) {
+        require(yearMonth.matches(Regex("\\d{4}-\\d{2}"))) {
+            "yearMonth must be in yyyy-MM format"
         }
-
-        require(client.id.isNotBlank()) {
-            "client id must not be blank"
-        }
-
-        transaction.set(
-            clientCollection(client.ownerId)
-                .document(client.id),
-            client.copy(
-                createdAt = client.createdAt,
-                updatedAt = client.updatedAt
-            )
-        )
-
-        return client
     }
-
-
-
 }
