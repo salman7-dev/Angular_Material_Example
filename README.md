@@ -1,284 +1,488 @@
+Type mismatch.
+Required:
+GlobalMonthlyRolloverJob
+Found:
+Unit
+
 package com.clientledger.core.service.monthlyrollover
 
-import com.clientledger.core.domain.MonthlyRolloverRetry
+import com.clientledger.core.pagination.PageResult
 import com.clientledger.core.repository.monthlyrollover.GlobalMonthlyRolloverJobRepository
-import com.clientledger.core.repository.monthlyrollover.MonthlyRolloverRetryRepository
 import com.clientledger.core.repository.owner.OwnerRepository
-import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.stereotype.Service
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.time.Clock
+import java.time.Instant
 import java.time.YearMonth
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
+import java.time.ZoneId
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
-@Service
-class MonthlyRolloverOrchestrator(
-    private val ownerRepository: OwnerRepository,
-    private val globalMonthlyRolloverJobRepository:
-    GlobalMonthlyRolloverJobRepository,
-    private val monthlyRolloverRetryRepository:
-    MonthlyRolloverRetryRepository,
-    private val perOwnerMonthlyRolloverService:
-    PerOwnerMonthlyRolloverService,
-    private val clock: Clock,
-    @Value("\${server.port}") private val serverPort: String
-) {
+class MonthlyRolloverOrchestratorTest {
 
-    private val logger =
-        LoggerFactory.getLogger(MonthlyRolloverOrchestrator::class.java)
-
-    /**
-     * Executes the global monthly rollover when this instance
-     * successfully acquires the global job.
-     *
-     * Returns:
-     * - true  -> this instance acquired and completed the global job
-     * - false -> another instance already owns the job
-     *
-     * Unexpected failures are propagated to the caller.
-     */
-    fun rollover(
-        previousYearMonth: YearMonth,
-        newYearMonth: YearMonth
-    ): Boolean {
-
-        require(
-            newYearMonth == previousYearMonth.plusMonths(1)
-        ) {
-            "newYearMonth must immediately follow previousYearMonth"
-        }
-
-        val currentMonth =
-            newYearMonth.toString()
-
-        logger.info(
-            "[MONTHLY-ROLLOVER] Attempting global job acquisition | yearMonth={} | instancePort={}",
-            currentMonth,
-            serverPort
+    private val testClock =
+        Clock.fixed(
+            Instant.parse("2026-09-24T10:00:00Z"),
+            ZoneId.of("UTC")
         )
 
-        val job =
-            globalMonthlyRolloverJobRepository.tryStart(
-                yearMonth = currentMonth,
-                startedAt = clock.instant()
+    private val previousMonth =
+        YearMonth.of(2026, 8)
+
+    private val currentMonth =
+        YearMonth.of(2026, 9)
+
+    @Test
+    fun globalRolloverCompletesWhenOneOwnerFails() {
+
+        val ownerRepository =
+            mockk<OwnerRepository>()
+
+        val globalJobRepository =
+            mockk<GlobalMonthlyRolloverJobRepository>()
+
+        val rolloverService =
+            mockk<PerOwnerMonthlyRolloverService>()
+
+        val owners =
+            listOf(
+                "owner-success-1",
+                "owner-failed",
+                "owner-success-2"
             )
+
+        every {
+            globalJobRepository.tryStart(
+                yearMonth = currentMonth.toString(),
+                startedAt = testClock.instant()
+            )
+        } returns mockk(relaxed = true)
+
+        every {
+            globalJobRepository.markCompleted(
+                yearMonth = currentMonth.toString(),
+                completedAt = testClock.instant()
+            )
+        } returns Unit
+
+        every {
+            ownerRepository.findPage(
+                size = 100,
+                cursor = any()
+            )
+        } returns PageResult(
+            content = owners,
+            hasNext = false,
+            nextCursor = null
+        )
+
+        every {
+            rolloverService.rollover(
+                ownerId = "owner-success-1",
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+        } returns Unit
+
+        every {
+            rolloverService.rollover(
+                ownerId = "owner-failed",
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+        } throws IllegalStateException(
+            "Forced owner rollover failure"
+        )
+
+        every {
+            rolloverService.rollover(
+                ownerId = "owner-success-2",
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+        } returns Unit
+
+        val orchestrator =
+            MonthlyRolloverOrchestrator(
+                ownerRepository = ownerRepository,
+                globalMonthlyRolloverJobRepository =
+                globalJobRepository,
+                perOwnerMonthlyRolloverService =
+                rolloverService,
+                clock = testClock,
+                serverPort = "8081"
+            )
+
+        val result =
+            orchestrator.rollover(
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+
+        assertTrue(result)
 
         /*
-         * Another application instance already owns
-         * this monthly rollover job.
-         *
-         * This instance must NOT restore NORMAL or perform
-         * any rollover recovery.
+         * Every owner must be processed even though one owner failed.
          */
-        if (job == null) {
-            logger.info(
-                "[MONTHLY-ROLLOVER] Another instance already owns the job - EXIT | yearMonth={} | instancePort={}",
-                currentMonth,
-                serverPort
+        verify(exactly = 1) {
+            rolloverService.rollover(
+                ownerId = "owner-success-1",
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
             )
-
-            return false
         }
 
-        logger.info(
-            "[MONTHLY-ROLLOVER] GLOBAL JOB ACQUIRED | yearMonth={} | instancePort={} | status={}",
-            currentMonth,
-            serverPort,
-            job.status
+        verify(exactly = 1) {
+            rolloverService.rollover(
+                ownerId = "owner-failed",
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+        }
+
+        verify(exactly = 1) {
+            rolloverService.rollover(
+                ownerId = "owner-success-2",
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+        }
+
+        /*
+         * The global job must still be marked COMPLETED.
+         */
+        verify(exactly = 1) {
+            globalJobRepository.markCompleted(
+                yearMonth = currentMonth.toString(),
+                completedAt = testClock.instant()
+            )
+        }
+    }
+
+    @Test
+    fun globalRolloverProcessesOwnersInParallel() {
+
+        val ownerRepository =
+            mockk<OwnerRepository>()
+
+        val globalJobRepository =
+            mockk<GlobalMonthlyRolloverJobRepository>()
+
+        val rolloverService =
+            mockk<PerOwnerMonthlyRolloverService>()
+
+        val owners =
+            listOf(
+                "owner-1",
+                "owner-2",
+                "owner-3",
+                "owner-4"
+            )
+
+        val startedOwners =
+            ConcurrentHashMap.newKeySet<String>()
+
+        val allOwnersStarted =
+            CountDownLatch(owners.size)
+
+        val releaseOwners =
+            CountDownLatch(1)
+
+        every {
+            globalJobRepository.tryStart(
+                yearMonth = currentMonth.toString(),
+                startedAt = testClock.instant()
+            )
+        } returns mockk(relaxed = true)
+
+        every {
+            globalJobRepository.markCompleted(
+                yearMonth = currentMonth.toString(),
+                completedAt = testClock.instant()
+            )
+        } returns Unit
+
+        every {
+            ownerRepository.findPage(
+                size = 100,
+                cursor = any()
+            )
+        } returns PageResult(
+            content = owners,
+            hasNext = false,
+            nextCursor = null
         )
 
-        val executor =
-            Executors.newVirtualThreadPerTaskExecutor()
+        owners.forEach { ownerId ->
 
-        try {
+            every {
+                rolloverService.rollover(
+                    ownerId = ownerId,
+                    previousYearMonth = previousMonth,
+                    newYearMonth = currentMonth
+                )
+            } answers {
 
-            processOwners(
-                executor = executor,
-                previousYearMonth = previousYearMonth,
-                newYearMonth = newYearMonth
-            )
+                startedOwners.add(ownerId)
 
-            /*
-             * At this point all owner pages have been processed.
-             *
-             * Individual owner failures were isolated and their
-             * retry entries were successfully persisted.
-             *
-             * Only after the global orchestration itself completes
-             * do we mark the global job COMPLETED.
-             */
-            globalMonthlyRolloverJobRepository.markCompleted(
-                yearMonth = currentMonth,
-                completedAt = clock.instant()
-            )
+                allOwnersStarted.countDown()
 
-            logger.info(
-                "[MONTHLY-ROLLOVER] GLOBAL JOB COMPLETED | yearMonth={} | instancePort={}",
-                currentMonth,
-                serverPort
-            )
-
-            /*
-             * true means this exact instance:
-             * 1. acquired the global job
-             * 2. completed global owner processing
-             * 3. successfully recorded all failed-owner retries
-             * 4. successfully marked the job COMPLETED
-             *
-             * MaintenanceService can now safely perform the
-             * WRITE_BLOCKED -> NORMAL transition.
-             */
-            return true
-
-        } finally {
-            executor.close()
-        }
-    }
-
-    private fun processOwners(
-        executor: ExecutorService,
-        previousYearMonth: YearMonth,
-        newYearMonth: YearMonth
-    ) {
-        var cursor: String? = null
-
-        while (true) {
-
-            val page =
-                ownerRepository.findPage(
-                    size = OWNER_PAGE_SIZE,
-                    cursor = cursor
+                releaseOwners.await(
+                    5,
+                    TimeUnit.SECONDS
                 )
 
-            if (page.content.isEmpty()) {
-                break
+                Unit
             }
+        }
 
-            val futures =
-                page.content.map { ownerId ->
-
-                    executor.submit<Boolean> {
-                        processOwner(
-                            ownerId = ownerId,
-                            previousYearMonth = previousYearMonth,
-                            newYearMonth = newYearMonth
-                        )
-                    }
-                }
-
-            waitForPage(
-                futures = futures
+        val orchestrator =
+            MonthlyRolloverOrchestrator(
+                ownerRepository = ownerRepository,
+                globalMonthlyRolloverJobRepository =
+                globalJobRepository,
+                perOwnerMonthlyRolloverService =
+                rolloverService,
+                clock = testClock,
+                serverPort = "8081"
             )
 
-            cursor = page.nextCursor
+        val rolloverThread =
+            Thread {
 
-            if (cursor == null) {
-                break
+                orchestrator.rollover(
+                    previousYearMonth = previousMonth,
+                    newYearMonth = currentMonth
+                )
             }
+
+        rolloverThread.start()
+
+        val allStarted =
+            allOwnersStarted.await(
+                5,
+                TimeUnit.SECONDS
+            )
+
+        assertTrue(
+            allStarted,
+            "Expected all owners to start processing in parallel"
+        )
+
+        assertEquals(
+            owners.toSet(),
+            startedOwners
+        )
+
+        releaseOwners.countDown()
+
+        rolloverThread.join(5000)
+
+        assertTrue(
+            !rolloverThread.isAlive,
+            "Global rollover should finish after all owners complete"
+        )
+
+        verify(exactly = 1) {
+            globalJobRepository.markCompleted(
+                yearMonth = currentMonth.toString(),
+                completedAt = testClock.instant()
+            )
         }
     }
 
-    /**
-     * Returns true when the owner processing completed safely.
-     *
-     * An owner rollover failure is considered safely handled only
-     * when its retry entry is successfully persisted.
-     *
-     * Returns false when the retry entry could not be persisted.
-     */
-    private fun processOwner(
-        ownerId: String,
-        previousYearMonth: YearMonth,
-        newYearMonth: YearMonth
-    ): Boolean {
-        try {
+    @Test
+    fun globalRolloverReturnsFalseWhenAnotherInstanceOwnsJob() {
 
-            perOwnerMonthlyRolloverService.rollover(
-                ownerId = ownerId,
-                previousYearMonth = previousYearMonth,
-                newYearMonth = newYearMonth
+        val ownerRepository =
+            mockk<OwnerRepository>()
+
+        val globalJobRepository =
+            mockk<GlobalMonthlyRolloverJobRepository>()
+
+        val rolloverService =
+            mockk<PerOwnerMonthlyRolloverService>()
+
+        every {
+            globalJobRepository.tryStart(
+                yearMonth = currentMonth.toString(),
+                startedAt = testClock.instant()
+            )
+        } returns null
+
+        val orchestrator =
+            MonthlyRolloverOrchestrator(
+                ownerRepository = ownerRepository,
+                globalMonthlyRolloverJobRepository =
+                globalJobRepository,
+                perOwnerMonthlyRolloverService =
+                rolloverService,
+                clock = testClock,
+                serverPort = "8081"
             )
 
-            return true
-
-        } catch (exception: Exception) {
-
-            logger.error(
-                "Monthly rollover failed for ownerId={}, yearMonth={}",
-                ownerId,
-                newYearMonth,
-                exception
+        val result =
+            orchestrator.rollover(
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
             )
 
-            return try {
+        assertEquals(
+            false,
+            result
+        )
 
-                monthlyRolloverRetryRepository.save(
-                    MonthlyRolloverRetry(
-                        yearMonth = newYearMonth.toString(),
+        /*
+         * No owner should be processed when this instance
+         * does not acquire the global job.
+         */
+        verify(exactly = 0) {
+            ownerRepository.findPage(
+                size = 100,
+                cursor = any()
+            )
+        }
+
+        verify(exactly = 0) {
+            rolloverService.rollover(
+                ownerId = any(),
+                previousYearMonth = any(),
+                newYearMonth = any()
+            )
+        }
+
+        verify(exactly = 0) {
+            globalJobRepository.markCompleted(
+                yearMonth = any(),
+                completedAt = any()
+            )
+        }
+    }
+
+    @Test
+    fun globalRolloverProcessesMultipleOwnerPages() {
+
+        val ownerRepository =
+            mockk<OwnerRepository>()
+
+        val globalJobRepository =
+            mockk<GlobalMonthlyRolloverJobRepository>()
+
+        val rolloverService =
+            mockk<PerOwnerMonthlyRolloverService>()
+
+        val firstPageOwners =
+            listOf(
+                "owner-page-1",
+                "owner-page-2"
+            )
+
+        val secondPageOwners =
+            listOf(
+                "owner-page-3"
+            )
+
+        every {
+            globalJobRepository.tryStart(
+                yearMonth = currentMonth.toString(),
+                startedAt = testClock.instant()
+            )
+        } returns mockk(relaxed = true)
+
+        every {
+            globalJobRepository.markCompleted(
+                yearMonth = currentMonth.toString(),
+                completedAt = testClock.instant()
+            )
+        } returns Unit
+
+        every {
+            ownerRepository.findPage(
+                size = 100,
+                cursor = null
+            )
+        } returns PageResult(
+            content = firstPageOwners,
+            hasNext = true,
+            nextCursor = "page-2"
+        )
+
+        every {
+            ownerRepository.findPage(
+                size = 100,
+                cursor = "page-2"
+            )
+        } returns PageResult(
+            content = secondPageOwners,
+            hasNext = false,
+            nextCursor = null
+        )
+
+        every {
+            rolloverService.rollover(
+                ownerId = any(),
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+        } returns Unit
+
+        val orchestrator =
+            MonthlyRolloverOrchestrator(
+                ownerRepository = ownerRepository,
+                globalMonthlyRolloverJobRepository =
+                globalJobRepository,
+                perOwnerMonthlyRolloverService =
+                rolloverService,
+                clock = testClock,
+                serverPort = "8081"
+            )
+
+        val result =
+            orchestrator.rollover(
+                previousYearMonth = previousMonth,
+                newYearMonth = currentMonth
+            )
+
+        assertTrue(result)
+
+        verify(exactly = 1) {
+            ownerRepository.findPage(
+                size = 100,
+                cursor = null
+            )
+        }
+
+        verify(exactly = 1) {
+            ownerRepository.findPage(
+                size = 100,
+                cursor = "page-2"
+            )
+        }
+
+        firstPageOwners
+            .plus(secondPageOwners)
+            .forEach { ownerId ->
+
+                verify(exactly = 1) {
+                    rolloverService.rollover(
                         ownerId = ownerId,
-                        failedAt = clock.instant(),
-                        error = exception.message
-                    )
-                )
-
-                logger.info(
-                    "[MONTHLY-ROLLOVER] Failed owner recorded for recovery | ownerId={} | yearMonth={}",
-                    ownerId,
-                    newYearMonth
-                )
-
-                true
-
-            } catch (retryException: Exception) {
-
-                logger.error(
-                    "[MONTHLY-ROLLOVER] CRITICAL: Failed to record owner retry | ownerId={} | yearMonth={}",
-                    ownerId,
-                    newYearMonth,
-                    retryException
-                )
-
-                false
-            }
-        }
-    }
-
-    private fun waitForPage(
-        futures: List<Future<Boolean>>
-    ) {
-        futures.forEach { future ->
-
-            try {
-
-                val completedSafely = future.get()
-
-                if (!completedSafely) {
-                    throw IllegalStateException(
-                        "Failed to persist monthly rollover retry entry"
+                        previousYearMonth = previousMonth,
+                        newYearMonth = currentMonth
                     )
                 }
-
-            } catch (exception: Exception) {
-
-                /*
-                 * A failure to persist the retry entry means the
-                 * failed owner could be lost from recovery.
-                 *
-                 * Therefore the global rollover must fail instead
-                 * of marking the global job COMPLETED.
-                 */
-                throw IllegalStateException(
-                    "Monthly rollover page processing failed",
-                    exception
-                )
             }
-        }
-    }
 
-    companion object {
-        private const val OWNER_PAGE_SIZE = 100
+        verify(exactly = 1) {
+            globalJobRepository.markCompleted(
+                yearMonth = currentMonth.toString(),
+                completedAt = testClock.instant()
+            )
+        }
     }
 }
 
