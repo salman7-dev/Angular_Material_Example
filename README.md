@@ -2,18 +2,25 @@ package com.clientledger.core.repository.summary
 
 import com.clientledger.core.config.ClientLedgerProperties
 import com.clientledger.core.domain.ClientType
-import com.clientledger.core.domain.SummaryClientIndex
 import com.google.cloud.NoCredentials
 import com.google.cloud.firestore.Firestore
 import com.google.cloud.firestore.FirestoreOptions
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.context.ActiveProfiles
 
-class SummaryClientIndexRepositoryTest {
+@SpringBootTest
+@ActiveProfiles("test")
+class SummaryClientIndexBucketRepositoryTest {
+
+    @Autowired
+    private lateinit var properties: ClientLedgerProperties
 
     companion object {
 
@@ -38,788 +45,360 @@ class SummaryClientIndexRepositoryTest {
         }
     }
 
-    private fun repository(): SummaryClientIndexRepository {
-        return SummaryClientIndexRepository(
-            firestore = firestore
+    private fun repository(): SummaryClientIndexBucketRepository {
+        return SummaryClientIndexBucketRepository(
+            firestore = firestore,
+            properties = properties
         )
     }
 
     @Test
-    fun insertAndFindReceivableClient() {
+    fun allocateFirstClientUsesBucket000() {
 
         val repository = repository()
 
         val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
 
-        val index = SummaryClientIndex(
-            clientId = "client-${System.nanoTime()}",
-            amount = 10000,
+        val bucketId = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
             status = ClientType.RECEIVABLE
         )
 
-        repository.insert(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            bucketId = "bucket_000",
-            index = index
-        )
+        assertEquals("bucket_000", bucketId)
 
-        val result = repository.find(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000",
-            clientId = index.clientId
-        )
-
-        assertNotNull(result)
-        assertEquals(index.clientId, result!!.clientId)
-        assertEquals(10000, result.amount)
-        assertEquals(ClientType.RECEIVABLE, result.status)
-    }
-
-    @Test
-    fun insertAndFindAdvanceClient() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        val index = SummaryClientIndex(
-            clientId = "client-${System.nanoTime()}",
-            amount = 5000,
-            status = ClientType.ADVANCE
-        )
-
-        repository.insert(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            bucketId = "bucket_000",
-            index = index
-        )
-
-        val result = repository.find(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = ClientType.ADVANCE,
-            bucketId = "bucket_000",
-            clientId = index.clientId
-        )
-
-        assertNotNull(result)
-        assertEquals(index.clientId, result!!.clientId)
-        assertEquals(5000, result.amount)
-        assertEquals(ClientType.ADVANCE, result.status)
-    }
-
-    @Test
-    fun differentBucketsKeepClientsSeparate() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        val firstClient = SummaryClientIndex(
-            clientId = "client-1-${System.nanoTime()}",
-            amount = 1000,
-            status = ClientType.RECEIVABLE
-        )
-
-        val secondClient = SummaryClientIndex(
-            clientId = "client-2-${System.nanoTime()}",
-            amount = 2000,
-            status = ClientType.RECEIVABLE
-        )
-
-        repository.insert(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            bucketId = "bucket_000",
-            index = firstClient
-        )
-
-        repository.insert(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            bucketId = "bucket_001",
-            index = secondClient
-        )
-
-        val firstResult = repository.find(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000",
-            clientId = firstClient.clientId
-        )
-
-        val secondResult = repository.find(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_001",
-            clientId = secondClient.clientId
-        )
-
-        assertNotNull(firstResult)
-        assertNotNull(secondResult)
-
-        assertEquals(firstClient.clientId, firstResult!!.clientId)
-        assertEquals(secondClient.clientId, secondResult!!.clientId)
-    }
-
-    @Test
-    fun findReturnsNullWhenClientDoesNotExist() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val result = repository.find(
+        val bucket = repository.find(
             ownerId = ownerId,
             yearMonth = "2026-09",
             status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000",
-            clientId = "missing-client"
+            bucketId = "bucket_000"
         )
 
-        assertEquals(null, result)
+        assertNotNull(bucket)
+        assertEquals(300, bucket!!["capacity"])
+        assertEquals(1, bucket["size"])
     }
 
     @Test
-    fun insertInTransactionAndFind() {
+    fun allocateClient301UsesBucket001() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        repeat(300) {
+            repository.allocateBucket(
+                ownerId = ownerId,
+                yearMonth = "2026-09",
+                status = ClientType.RECEIVABLE
+            )
+        }
+
+        val bucketId = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE
+        )
+
+        assertEquals("bucket_001", bucketId)
+
+        val bucket000 = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        val bucket001 = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_001"
+        )
+
+        assertNotNull(bucket000)
+        assertNotNull(bucket001)
+
+        assertEquals(300, bucket000!!["size"])
+        assertEquals(1, bucket001!!["size"])
+    }
+
+    @Test
+    fun differentStatusUsesSeparateBuckets() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        val receivableBucket = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE
+        )
+
+        val advanceBucket = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.ADVANCE
+        )
+
+        assertEquals("bucket_000", receivableBucket)
+        assertEquals("bucket_000", advanceBucket)
+
+        val receivable = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        val advance = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.ADVANCE,
+            bucketId = "bucket_000"
+        )
+
+        assertNotNull(receivable)
+        assertNotNull(advance)
+
+        assertEquals(1, receivable!!["size"])
+        assertEquals(1, advance!!["size"])
+    }
+
+    @Test
+    fun differentOwnerUsesSeparateBuckets() {
+
+        val repository = repository()
+
+        val owner1 = "owner-1-${System.nanoTime()}"
+        val owner2 = "owner-2-${System.nanoTime()}"
+
+        val firstOwnerBucket = repository.allocateBucket(
+            ownerId = owner1,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE
+        )
+
+        val secondOwnerBucket = repository.allocateBucket(
+            ownerId = owner2,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE
+        )
+
+        assertEquals("bucket_000", firstOwnerBucket)
+        assertEquals("bucket_000", secondOwnerBucket)
+
+        val firstOwner = repository.find(
+            ownerId = owner1,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        val secondOwner = repository.find(
+            ownerId = owner2,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        assertNotNull(firstOwner)
+        assertNotNull(secondOwner)
+
+        assertEquals(1, firstOwner!!["size"])
+        assertEquals(1, secondOwner!!["size"])
+    }
+
+    @Test
+    fun differentMonthUsesSeparateBuckets() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        val septemberBucket = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE
+        )
+
+        val octoberBucket = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = "2026-10",
+            status = ClientType.RECEIVABLE
+        )
+
+        assertEquals("bucket_000", septemberBucket)
+        assertEquals("bucket_000", octoberBucket)
+
+        val september = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        val october = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-10",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        assertNotNull(september)
+        assertNotNull(october)
+
+        assertEquals(1, september!!["size"])
+        assertEquals(1, october!!["size"])
+    }
+
+    @Test
+    fun findReturnsNullWhenBucketDoesNotExist() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        val bucket = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000"
+        )
+
+        assertEquals(null, bucket)
+    }
+
+    @Test
+    fun bucketUsesFlatYearMonthStructure() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE
+        )
+
+        val snapshot = firestore
+            .collection("owners")
+            .document(ownerId)
+            .collection("summary_client_index")
+            .document("2026-09")
+            .collection("status")
+            .document("receivable")
+            .collection("buckets")
+            .document("bucket_000")
+            .get()
+            .get()
+
+        assertTrue(snapshot.exists())
+        assertEquals(300, snapshot.getLong("capacity"))
+        assertEquals(1, snapshot.getLong("size"))
+    }
+
+    @Test
+    fun planBucketAllocationInTransactionFindsAvailableBucket() {
 
         val repository = repository()
 
         val ownerId = "owner-${System.nanoTime()}"
         val yearMonth = "2026-09"
 
-        val index = SummaryClientIndex(
-            clientId = "client-${System.nanoTime()}",
-            amount = 7500,
+        val bucketId = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            status = ClientType.RECEIVABLE
+        )
+
+        val plan = firestore.runTransaction { transaction ->
+
+            repository.planBucketAllocationInTransaction(
+                transaction = transaction,
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE
+            )
+        }.get()
+
+        assertEquals(bucketId, plan.bucketId)
+        assertEquals(1, plan.currentSize)
+        assertEquals(false, plan.isNewBucket)
+    }
+
+    @Test
+    fun applyBucketAllocationInTransactionIncreasesBucketSize() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        val bucketId = repository.allocateBucket(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
             status = ClientType.RECEIVABLE
         )
 
         firestore.runTransaction { transaction ->
 
-            repository.insertInTransaction(
+            val plan = repository.planBucketAllocationInTransaction(
                 transaction = transaction,
                 ownerId = ownerId,
                 yearMonth = yearMonth,
-                bucketId = "bucket_000",
-                index = index
+                status = ClientType.RECEIVABLE
+            )
+
+            repository.applyBucketAllocationInTransaction(
+                transaction = transaction,
+                plan = plan
             )
 
             null
         }.get()
 
-        val result = repository.find(
+        val bucket = repository.find(
             ownerId = ownerId,
             yearMonth = yearMonth,
             status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000",
-            clientId = index.clientId
+            bucketId = bucketId
         )
 
-        assertNotNull(result)
-        assertEquals(index.clientId, result!!.clientId)
-        assertEquals(7500, result.amount)
-        assertEquals(ClientType.RECEIVABLE, result.status)
+        assertNotNull(bucket)
+        assertEquals(2, bucket!!["size"])
     }
 
     @Test
-    fun findPageReturnsEmptyWhenNoClientsExist() {
-
-        val repository = repository()
-
-        val result =
-            repository.findPage(
-                ownerId = "owner-${System.nanoTime()}",
-                yearMonth = "2026-09",
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = null
-            )
-
-        assertEquals(0, result.content.size)
-        assertEquals(false, result.hasNext)
-        assertEquals(null, result.nextCursor)
-    }
-
-    @Test
-    fun findPageReturnsSingleClient() {
+    fun planBucketAllocationInTransactionPlansNewBucketWhenAllAreFull() {
 
         val repository = repository()
 
         val ownerId = "owner-${System.nanoTime()}"
         val yearMonth = "2026-09"
 
-        insertClients(
-            repository = repository,
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            count = 1
-        )
-
-        val result =
-            repository.findPage(
+        repeat(300) {
+            repository.allocateBucket(
                 ownerId = ownerId,
                 yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = null
+                status = ClientType.RECEIVABLE
             )
-
-        assertEquals(1, result.content.size)
-        assertEquals("client-000", result.content.first().clientId)
-        assertEquals(false, result.hasNext)
-        assertEquals(null, result.nextCursor)
-    }
-
-    @Test
-    fun findPageReturnsExactly50Clients() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        insertClients(
-            repository = repository,
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            count = 50
-        )
-
-        val result =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = null
-            )
-
-        assertEquals(50, result.content.size)
-        assertEquals("client-000", result.content.first().clientId)
-        assertEquals("client-049", result.content.last().clientId)
-        assertEquals(false, result.hasNext)
-        assertEquals(null, result.nextCursor)
-    }
-
-    @Test
-    fun findPageReturns51ClientsAcrossTwoPages() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        insertClients(
-            repository = repository,
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            count = 51
-        )
-
-        val firstPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = null
-            )
-
-        assertEquals(50, firstPage.content.size)
-        assertEquals("client-000", firstPage.content.first().clientId)
-        assertEquals("client-049", firstPage.content.last().clientId)
-        assertEquals(true, firstPage.hasNext)
-        assertNotNull(firstPage.nextCursor)
-
-        val secondPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = firstPage.nextCursor
-            )
-
-        assertEquals(1, secondPage.content.size)
-        assertEquals("client-050", secondPage.content.first().clientId)
-        assertEquals(false, secondPage.hasNext)
-        assertEquals(null, secondPage.nextCursor)
-    }
-
-    @Test
-    fun findPageReturns100ClientsAcrossTwoPages() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        insertClients(
-            repository = repository,
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            count = 100
-        )
-
-        val firstPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = null
-            )
-
-        val secondPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = firstPage.nextCursor
-            )
-
-        assertEquals(50, firstPage.content.size)
-        assertEquals("client-049", firstPage.content.last().clientId)
-        assertEquals(true, firstPage.hasNext)
-
-        assertEquals(50, secondPage.content.size)
-        assertEquals("client-050", secondPage.content.first().clientId)
-        assertEquals("client-099", secondPage.content.last().clientId)
-        assertEquals(false, secondPage.hasNext)
-        assertEquals(null, secondPage.nextCursor)
-    }
-
-    @Test
-    fun findPageReturns101ClientsAcrossThreePages() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        insertClients(
-            repository = repository,
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            count = 101
-        )
-
-        val firstPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = null
-            )
-
-        val secondPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = firstPage.nextCursor
-            )
-
-        val thirdPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = secondPage.nextCursor
-            )
-
-        assertEquals(50, firstPage.content.size)
-        assertEquals("client-000", firstPage.content.first().clientId)
-        assertEquals("client-049", firstPage.content.last().clientId)
-        assertEquals(true, firstPage.hasNext)
-
-        assertEquals(50, secondPage.content.size)
-        assertEquals("client-050", secondPage.content.first().clientId)
-        assertEquals("client-099", secondPage.content.last().clientId)
-        assertEquals(true, secondPage.hasNext)
-
-        assertEquals(1, thirdPage.content.size)
-        assertEquals("client-100", thirdPage.content.first().clientId)
-        assertEquals(false, thirdPage.hasNext)
-        assertEquals(null, thirdPage.nextCursor)
-    }
-
-    @Test
-    fun findPageDoesNotSkipOrDuplicateClients() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        insertClients(
-            repository = repository,
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            count = 101
-        )
-
-        val firstPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = null
-            )
-
-        val secondPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = firstPage.nextCursor
-            )
-
-        val thirdPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 50,
-                cursor = secondPage.nextCursor
-            )
-
-        val clientIds =
-            firstPage.content.map { it.clientId } +
-                    secondPage.content.map { it.clientId } +
-                    thirdPage.content.map { it.clientId }
-
-        assertEquals(101, clientIds.size)
-        assertEquals(101, clientIds.distinct().size)
-
-        assertEquals(
-            (0..100).map { "client-%03d".format(it) },
-            clientIds
-        )
-    }
-
-    @Test
-    fun findPageHandlesMultipleBuckets() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        insertClients(
-            repository = repository,
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            count = 301
-        )
-
-        val firstPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 100,
-                cursor = null
-            )
-
-        val secondPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 100,
-                cursor = firstPage.nextCursor
-            )
-
-        val thirdPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 100,
-                cursor = secondPage.nextCursor
-            )
-
-        val fourthPage =
-            repository.findPage(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE,
-                size = 100,
-                cursor = thirdPage.nextCursor
-            )
-
-        val clientIds =
-            firstPage.content.map { it.clientId } +
-                    secondPage.content.map { it.clientId } +
-                    thirdPage.content.map { it.clientId } +
-                    fourthPage.content.map { it.clientId }
-
-        assertEquals(100, firstPage.content.size)
-        assertEquals(100, secondPage.content.size)
-        assertEquals(100, thirdPage.content.size)
-        assertEquals(1, fourthPage.content.size)
-
-        assertEquals(301, clientIds.size)
-        assertEquals(301, clientIds.distinct().size)
-
-        assertEquals("client-000", clientIds.first())
-        assertEquals("client-300", clientIds.last())
-    }
-
-    @Test
-    fun findPageRejectsInvalidCursor() {
-
-        val repository = repository()
-
-        val exception =
-            assertThrows<IllegalArgumentException> {
-
-                repository.findPage(
-                    ownerId = "owner-${System.nanoTime()}",
-                    yearMonth = "2026-09",
-                    status = ClientType.RECEIVABLE,
-                    size = 50,
-                    cursor = "invalid-cursor"
-                )
-            }
-
-        assertEquals(
-            "Invalid cursor",
-            exception.message
-        )
-    }
-
-
-    private fun insertClients(
-        repository: SummaryClientIndexRepository,
-        ownerId: String,
-        yearMonth: String,
-        count: Int
-    ) {
-
-        val bucketIds =
-            if (count <= 300) {
-                listOf("bucket_000")
-            } else {
-                listOf("bucket_000", "bucket_001")
-            }
-
-        bucketIds.forEach { bucketId ->
-
-            firestore
-                .collection("owners")
-                .document(ownerId)
-                .collection("summary_client_index")
-                .document(yearMonth)
-                .collection("status")
-                .document(ClientType.RECEIVABLE.name.lowercase())
-                .collection("buckets")
-                .document(bucketId)
-                .set(
-                    mapOf(
-                        "capacity" to 300,
-                        "size" to if (bucketId == "bucket_000") {
-                            minOf(count, 300)
-                        } else {
-                            count - 300
-                        }
-                    )
-                )
-                .get()
         }
 
-        repeat(count) { index ->
+        val plan = firestore.runTransaction { transaction ->
 
-            val bucketId =
-                if (index < 300) {
-                    "bucket_000"
-                } else {
-                    "bucket_001"
-                }
-
-            repository.insert(
+            repository.planBucketAllocationInTransaction(
+                transaction = transaction,
                 ownerId = ownerId,
                 yearMonth = yearMonth,
-                bucketId = bucketId,
-                index = SummaryClientIndex(
-                    clientId = "client-%03d".format(index),
-                    amount = index.toLong(),
-                    status = ClientType.RECEIVABLE
-                )
+                status = ClientType.RECEIVABLE
             )
-        }
-    }
+        }.get()
 
-
-    @Test
-    fun `copy index preserves same bucket and client data`() {
-
-        val ownerId = "owner-index-copy-test"
-        val previousYearMonth = "2026-09"
-        val newYearMonth = "2026-10"
-        val status = ClientType.RECEIVABLE
-        val bucketId = "bucket_000"
-
-        val bucketRepository =
-            SummaryClientIndexBucketRepository(
-                firestore = firestore,
-                properties = ClientLedgerProperties()
-            )
-
-        val indexRepository =
-            SummaryClientIndexRepository(
-                firestore = firestore
-            )
-
-        // Create source bucket.
-        firestore
-            .collection("owners")
-            .document(ownerId)
-            .collection("summary_client_index")
-            .document(previousYearMonth)
-            .collection("status")
-            .document(status.name.lowercase())
-            .collection("buckets")
-            .document(bucketId)
-            .set(
-                mapOf(
-                    "capacity" to 300L,
-                    "size" to 2L
-                )
-            )
-            .get()
-
-        val clientA =
-            SummaryClientIndex(
-                clientId = "client-A",
-                amount = 15_000,
-                status = status
-            )
-
-        val clientB =
-            SummaryClientIndex(
-                clientId = "client-B",
-                amount = 8_000,
-                status = status
-            )
-
-        indexRepository.insert(
-            ownerId = ownerId,
-            yearMonth = previousYearMonth,
-            bucketId = bucketId,
-            index = clientA
-        )
-
-        indexRepository.insert(
-            ownerId = ownerId,
-            yearMonth = previousYearMonth,
-            bucketId = bucketId,
-            index = clientB
-        )
-
-        // Read source data.
-        val sourceBucket =
-            bucketRepository.find(
-                ownerId = ownerId,
-                yearMonth = previousYearMonth,
-                status = status,
-                bucketId = bucketId
-            )
-
-        val sourceClients =
-            indexRepository.findAllInBucket(
-                ownerId = ownerId,
-                yearMonth = previousYearMonth,
-                status = status,
-                bucketId = bucketId
-            )
-
-        requireNotNull(sourceBucket)
-
-        // Copy bucket + clients atomically.
-        firestore
-            .runTransaction { transaction ->
-
-                bucketRepository.copyBucketInTransaction(
-                    transaction = transaction,
-                    ownerId = ownerId,
-                    previousYearMonth = previousYearMonth,
-                    newYearMonth = newYearMonth,
-                    status = status,
-                    bucketId = bucketId
-                )
-
-                sourceClients.forEach { index ->
-
-                    indexRepository.copyInTransaction(
-                        transaction = transaction,
-                        ownerId = ownerId,
-                        newYearMonth = newYearMonth,
-                        status = status,
-                        bucketId = bucketId,
-                        index = index
-                    )
-                }
-
-                null
-            }
-            .get()
-
-        // Verify bucket ID was preserved.
-        val newBucketIds =
-            bucketRepository.findBucketIds(
-                ownerId = ownerId,
-                yearMonth = newYearMonth,
-                status = status
-            )
-
-        assertEquals(
-            listOf(bucketId),
-            newBucketIds
-        )
-
-        // Verify bucket metadata was preserved.
-        val newBucket =
-            bucketRepository.find(
-                ownerId = ownerId,
-                yearMonth = newYearMonth,
-                status = status,
-                bucketId = bucketId
-            )
-
-        assertEquals(
-            sourceBucket,
-            newBucket
-        )
-
-        // Verify client index data was preserved.
-        val newClients =
-            indexRepository.findAllInBucket(
-                ownerId = ownerId,
-                yearMonth = newYearMonth,
-                status = status,
-                bucketId = bucketId
-            )
-
-        assertEquals(
-            sourceClients,
-            newClients
-        )
+        assertEquals("bucket_001", plan.bucketId)
+        assertEquals(0, plan.currentSize)
+        assertEquals(true, plan.isNewBucket)
     }
 }
