@@ -1,26 +1,46 @@
-package com.clientledger.core.repository.summary
+package com.clientledger.core.integration.client
 
 import com.clientledger.core.config.ClientLedgerProperties
+import com.clientledger.core.domain.Client
 import com.clientledger.core.domain.ClientType
+import com.clientledger.core.repository.client.ClientRepository
+import com.clientledger.core.repository.history.ClientHistoryBucketRepository
+import com.clientledger.core.repository.history.ClientHistoryRepository
+import com.clientledger.core.repository.lock.OwnerOperationLockRepository
+import com.clientledger.core.repository.maintenance.MaintenanceRepository
+import com.clientledger.core.repository.summary.GlobalSummaryRepository
+import com.clientledger.core.repository.summary.SummaryClientIndexBucketRepository
+import com.clientledger.core.repository.summary.SummaryClientIndexRepository
+import com.clientledger.core.service.client.ClientService
+import com.clientledger.core.service.lock.OwnerOperationLockService
+import com.clientledger.core.transaction.FirestoreTransactionExecutor
 import com.google.cloud.NoCredentials
 import com.google.cloud.firestore.Firestore
 import com.google.cloud.firestore.FirestoreOptions
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.ActiveProfiles
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.assertThrows
+import java.time.Clock
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
 
-@SpringBootTest
 @ActiveProfiles("test")
-class SummaryClientIndexBucketRepositoryTest {
+@SpringBootTest
+class ClientCreateIntegrationTest {
 
     @Autowired
     private lateinit var properties: ClientLedgerProperties
+
+    @Autowired
+    private lateinit var ownerOperationLockService: OwnerOperationLockService
 
     companion object {
 
@@ -45,360 +65,357 @@ class SummaryClientIndexBucketRepositoryTest {
         }
     }
 
-    private fun repository(): SummaryClientIndexBucketRepository {
-        return SummaryClientIndexBucketRepository(
+    @Test
+    fun createClientCreatesConsistentDataAcrossAllCollections() {
+
+        val clientService = createClientService()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        val client = clientService.create(
+            Client(
+                ownerId = ownerId,
+                name = "Integration Client",
+                phone = "9876543210",
+                initialOpeningBalance = 10000
+            )
+        )
+
+        assertTrue(client.id.startsWith("CLI-"))
+        assertEquals(ownerId, client.ownerId)
+        assertEquals(10000, client.initialOpeningBalance)
+        assertEquals(10000, client.latestAmount)
+        assertEquals(ClientType.RECEIVABLE, client.type)
+        assertTrue(client.bucketId.isNotBlank())
+
+        verifyClient(ownerId, client)
+        verifyHistory(ownerId, client)
+        verifyGlobalSummary(ownerId)
+        verifySummaryIndex(ownerId, client)
+        verifyHistoryBucket(ownerId, client)
+    }
+
+    private fun verifyClient(
+        ownerId: String,
+        client: Client
+    ) {
+
+        val repository = ClientRepository(firestore)
+
+        val storedClient = repository.findById(
+            ownerId = ownerId,
+            clientId = client.id
+        )
+
+        assertNotNull(storedClient)
+        assertEquals(client.id, storedClient!!.id)
+        assertEquals(ownerId, storedClient.ownerId)
+        assertEquals("Integration Client", storedClient.name)
+        assertEquals(10000, storedClient.initialOpeningBalance)
+        assertEquals(10000, storedClient.latestAmount)
+        assertEquals(ClientType.RECEIVABLE, storedClient.type)
+        assertEquals(client.bucketId, storedClient.bucketId)
+    }
+
+    private fun verifyHistory(
+        ownerId: String,
+        client: Client
+    ) {
+
+        val repository = ClientHistoryRepository(firestore)
+
+        val expectedMonths = expectedMonths()
+
+        expectedMonths.forEach { yearMonth ->
+
+            val history = repository.find(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+            assertNotNull(history)
+
+            assertEquals(client.id, history!!.clientId)
+            assertEquals(ownerId, history.ownerId)
+            assertEquals(yearMonth, history.yearMonth)
+
+            assertEquals(10000, history.openingBalance)
+            assertEquals(10000, history.closingBalance)
+            assertEquals(10000, history.receivable)
+            assertEquals(0, history.advance)
+            assertEquals(ClientType.RECEIVABLE, history.status)
+
+            assertEquals(0, history.totalInvoiceAmount)
+            assertEquals(0, history.totalPayments)
+            assertEquals(0, history.totalDiscount)
+            assertEquals(0, history.totalExpenses)
+            assertEquals(0, history.totalGstAmount)
+        }
+    }
+
+    private fun verifyGlobalSummary(
+        ownerId: String
+    ) {
+
+        val repository = GlobalSummaryRepository(firestore)
+
+        val expectedMonths = expectedMonths()
+
+        expectedMonths.forEach { yearMonth ->
+
+            val summary = repository.find(
+                ownerId = ownerId,
+                yearMonth = yearMonth
+            )
+
+            assertNotNull(summary)
+
+            assertEquals(ownerId, summary!!.ownerId)
+            assertEquals(yearMonth, summary.yearMonth)
+
+            assertEquals(1, summary.receivableClientCount)
+            assertEquals(0, summary.advanceClientCount)
+            assertEquals(0, summary.settledClientCount)
+
+            assertEquals(10000, summary.totalReceivableAmount)
+            assertEquals(0, summary.totalAdvanceAmount)
+
+            assertEquals(0, summary.cashFlow)
+            assertEquals(0, summary.netProfit)
+
+            assertEquals(0, summary.totalInvoiceAmount)
+            assertEquals(0, summary.totalInvoiceAmountWithGst)
+            assertEquals(0, summary.totalGstAmount)
+            assertEquals(0, summary.totalExpenseAmount)
+            assertEquals(0, summary.totalPaymentAmount)
+        }
+    }
+
+    private fun verifySummaryIndex(
+        ownerId: String,
+        client: Client
+    ) {
+
+        val repository = SummaryClientIndexRepository(firestore)
+
+        val expectedMonths = expectedMonths()
+
+        expectedMonths.forEach { yearMonth ->
+
+            val index = repository.find(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                bucketId = "bucket_000",
+                clientId = client.id
+            )
+
+            assertNotNull(index)
+
+            assertEquals(client.id, index!!.clientId)
+            assertEquals(10000, index.amount)
+            assertEquals(ClientType.RECEIVABLE, index.status)
+        }
+    }
+
+    private fun verifyHistoryBucket(
+        ownerId: String,
+        client: Client
+    ) {
+
+        val repository = ClientHistoryBucketRepository(
             firestore = firestore,
             properties = properties
         )
-    }
-
-    @Test
-    fun allocateFirstClientUsesBucket000() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE
-        )
-
-        assertEquals("bucket_000", bucketId)
 
         val bucket = repository.find(
             ownerId = ownerId,
             yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
+            bucketId = client.bucketId
         )
 
         assertNotNull(bucket)
-        assertEquals(300, bucket!!["capacity"])
-        assertEquals(1, bucket["size"])
+
+        assertEquals(100, bucket!!.capacity)
+        assertEquals(1, bucket.size)
+    }
+
+    private fun createClientService(): ClientService {
+
+        val properties = properties
+
+        val transactionExecutor =
+            FirestoreTransactionExecutor(firestore)
+
+        val clientRepository =
+            ClientRepository(firestore)
+
+        val historyBucketRepository =
+            ClientHistoryBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val globalSummaryRepository =
+            GlobalSummaryRepository(firestore)
+
+        val summaryIndexBucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val clock = Clock.fixed(
+            Instant.parse("2026-09-24T10:00:00Z"),
+            ZoneId.of("UTC")
+        )
+
+        val maintenanceRepository =
+            MaintenanceRepository(firestore)
+
+        val ownerOperationLockRepository = OwnerOperationLockRepository(
+                firestore = firestore,
+                maintenanceRepository = maintenanceRepository
+            )
+
+        return ClientService(
+            firestore = firestore,
+            transactionExecutor = transactionExecutor,
+            clientRepository = clientRepository,
+            historyBucketRepository = historyBucketRepository,
+            historyRepository = historyRepository,
+            globalSummaryRepository = globalSummaryRepository,
+            summaryIndexBucketRepository = summaryIndexBucketRepository,
+            summaryIndexRepository = summaryIndexRepository,
+            ownerOperationLockRepository = ownerOperationLockRepository,
+            properties = properties,
+            clock = clock,
+            ownerOperationLockService = ownerOperationLockService
+        )
     }
 
     @Test
-    fun allocateClient301UsesBucket001() {
-
-        val repository = repository()
+    fun staleFenceShouldPreventTransactionFromWriting() {
 
         val ownerId = "owner-${System.nanoTime()}"
 
-        repeat(300) {
-            repository.allocateBucket(
-                ownerId = ownerId,
-                yearMonth = "2026-09",
-                status = ClientType.RECEIVABLE
+        val maintenanceRepository =
+            MaintenanceRepository(firestore)
+
+        val repository =
+            OwnerOperationLockRepository(
+                firestore = firestore,
+                maintenanceRepository = maintenanceRepository
             )
+
+        val firstToken = "token-1"
+
+        val firstAcquiredAt = Instant.now()
+        val firstExpiresAt =
+            firstAcquiredAt.plusSeconds(30)
+
+        val firstLock =
+            repository.tryAcquire(
+                ownerId = ownerId,
+                lockToken = firstToken,
+                acquiredAt = firstAcquiredAt,
+                expiresAt = firstExpiresAt
+            )
+
+        assertNotNull(firstLock)
+        assertEquals(1L, firstLock!!.fence)
+
+        repository.release(
+            ownerId = ownerId,
+            lockToken = firstToken
+        )
+
+        val secondToken = "token-2"
+
+        val secondAcquiredAt = Instant.now()
+        val secondExpiresAt =
+            secondAcquiredAt.plusSeconds(30)
+
+        val secondLock =
+            repository.tryAcquire(
+                ownerId = ownerId,
+                lockToken = secondToken,
+                acquiredAt = secondAcquiredAt,
+                expiresAt = secondExpiresAt
+            )
+
+        assertNotNull(secondLock)
+        assertEquals(2L, secondLock!!.fence)
+
+        val testDocument =
+            firestore
+                .collection("owners")
+                .document(ownerId)
+                .collection("test")
+                .document("stale-fence")
+
+        val transactionExecutor =
+            FirestoreTransactionExecutor(firestore)
+
+        assertThrows<IllegalArgumentException> {
+
+            transactionExecutor.execute { transaction ->
+
+                val fenceValid =
+                    repository.isFenceValidInTransaction(
+                        transaction = transaction,
+                        ownerId = ownerId,
+                        expectedFence = firstLock.fence
+                    )
+
+                require(fenceValid) {
+                    "Owner operation lock fence changed: $ownerId"
+                }
+
+                transaction.set(
+                    testDocument,
+                    mapOf(
+                        "writtenBy" to "stale-operation"
+                    )
+                )
+            }
         }
 
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE
-        )
+        val snapshot =
+            testDocument
+                .get()
+                .get()
 
-        assertEquals("bucket_001", bucketId)
-
-        val bucket000 = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
-        )
-
-        val bucket001 = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_001"
-        )
-
-        assertNotNull(bucket000)
-        assertNotNull(bucket001)
-
-        assertEquals(300, bucket000!!["size"])
-        assertEquals(1, bucket001!!["size"])
+        assertFalse(snapshot.exists())
     }
 
-    @Test
-    fun differentStatusUsesSeparateBuckets() {
 
-        val repository = repository()
+    private fun expectedMonths(): List<String> {
 
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val receivableBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE
-        )
-
-        val advanceBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.ADVANCE
-        )
-
-        assertEquals("bucket_000", receivableBucket)
-        assertEquals("bucket_000", advanceBucket)
-
-        val receivable = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
-        )
-
-        val advance = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.ADVANCE,
-            bucketId = "bucket_000"
-        )
-
-        assertNotNull(receivable)
-        assertNotNull(advance)
-
-        assertEquals(1, receivable!!["size"])
-        assertEquals(1, advance!!["size"])
-    }
-
-    @Test
-    fun differentOwnerUsesSeparateBuckets() {
-
-        val repository = repository()
-
-        val owner1 = "owner-1-${System.nanoTime()}"
-        val owner2 = "owner-2-${System.nanoTime()}"
-
-        val firstOwnerBucket = repository.allocateBucket(
-            ownerId = owner1,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE
-        )
-
-        val secondOwnerBucket = repository.allocateBucket(
-            ownerId = owner2,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE
-        )
-
-        assertEquals("bucket_000", firstOwnerBucket)
-        assertEquals("bucket_000", secondOwnerBucket)
-
-        val firstOwner = repository.find(
-            ownerId = owner1,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
-        )
-
-        val secondOwner = repository.find(
-            ownerId = owner2,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
-        )
-
-        assertNotNull(firstOwner)
-        assertNotNull(secondOwner)
-
-        assertEquals(1, firstOwner!!["size"])
-        assertEquals(1, secondOwner!!["size"])
-    }
-
-    @Test
-    fun differentMonthUsesSeparateBuckets() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val septemberBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE
-        )
-
-        val octoberBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-10",
-            status = ClientType.RECEIVABLE
-        )
-
-        assertEquals("bucket_000", septemberBucket)
-        assertEquals("bucket_000", octoberBucket)
-
-        val september = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
-        )
-
-        val october = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-10",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
-        )
-
-        assertNotNull(september)
-        assertNotNull(october)
-
-        assertEquals(1, september!!["size"])
-        assertEquals(1, october!!["size"])
-    }
-
-    @Test
-    fun findReturnsNullWhenBucketDoesNotExist() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val bucket = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
-            bucketId = "bucket_000"
-        )
-
-        assertEquals(null, bucket)
-    }
-
-    @Test
-    fun bucketUsesFlatYearMonthStructure() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE
-        )
-
-        val snapshot = firestore
-            .collection("owners")
-            .document(ownerId)
-            .collection("summary_client_index")
-            .document("2026-09")
-            .collection("status")
-            .document("receivable")
-            .collection("buckets")
-            .document("bucket_000")
-            .get()
-            .get()
-
-        assertTrue(snapshot.exists())
-        assertEquals(300, snapshot.getLong("capacity"))
-        assertEquals(1, snapshot.getLong("size"))
-    }
-
-    @Test
-    fun planBucketAllocationInTransactionFindsAvailableBucket() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = ClientType.RECEIVABLE
-        )
-
-        val plan = firestore.runTransaction { transaction ->
-
-            repository.planBucketAllocationInTransaction(
-                transaction = transaction,
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE
+        val currentMonth = YearMonth.now(
+            Clock.fixed(
+                Instant.parse("2026-09-24T10:00:00Z"),
+                ZoneId.of("UTC")
             )
-        }.get()
-
-        assertEquals(bucketId, plan.bucketId)
-        assertEquals(1, plan.currentSize)
-        assertEquals(false, plan.isNewBucket)
-    }
-
-    @Test
-    fun applyBucketAllocationInTransactionIncreasesBucketSize() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = ClientType.RECEIVABLE
         )
 
-        firestore.runTransaction { transaction ->
+        val editableMonths =
+            properties.history.editableMonths
 
-            val plan = repository.planBucketAllocationInTransaction(
-                transaction = transaction,
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE
-            )
-
-            repository.applyBucketAllocationInTransaction(
-                transaction = transaction,
-                plan = plan
-            )
-
-            null
-        }.get()
-
-        val bucket = repository.find(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            status = ClientType.RECEIVABLE,
-            bucketId = bucketId
-        )
-
-        assertNotNull(bucket)
-        assertEquals(2, bucket!!["size"])
+        return (editableMonths - 1 downTo 0)
+            .map { offset ->
+                currentMonth.minusMonths(offset.toLong()).toString()
+            }
     }
 
-    @Test
-    fun planBucketAllocationInTransactionPlansNewBucketWhenAllAreFull() {
 
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        repeat(300) {
-            repository.allocateBucket(
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE
-            )
-        }
-
-        val plan = firestore.runTransaction { transaction ->
-
-            repository.planBucketAllocationInTransaction(
-                transaction = transaction,
-                ownerId = ownerId,
-                yearMonth = yearMonth,
-                status = ClientType.RECEIVABLE
-            )
-        }.get()
-
-        assertEquals("bucket_001", plan.bucketId)
-        assertEquals(0, plan.currentSize)
-        assertEquals(true, plan.isNewBucket)
-    }
 }
+
