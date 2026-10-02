@@ -1,100 +1,825 @@
-PS D:\New folder\client-ledger-backend> .\gradlew.bat test
+package com.clientledger.core.repository.summary
 
-> Task :compileTestKotlin FAILED
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/integration/client/ClientCreateIntegrationTest.kt:210:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:71:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:106:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:154:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:162:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:184:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:222:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:242:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:271:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:301:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:332:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:347:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:377:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:386:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:421:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:430:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:439:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:479:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:488:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:497:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:535:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:544:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:553:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:562:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:596:21 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:741:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:749:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:764:21 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:774:25 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:789:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:802:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/repository/summary/SummaryClientIndexRepositoryTest.kt:816:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/monthlyrollover/PerOwnerMonthlyRolloverServiceTest.kt:218:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/monthlyrollover/PerOwnerMonthlyRolloverServiceTest.kt:223:21 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/monthlyrollover/PerOwnerMonthlyRolloverServiceTest.kt:417:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/monthlyrollover/PerOwnerMonthlyRolloverServiceTest.kt:433:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/order/OrderServiceTest.kt:483:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/order/OrderServiceTest.kt:509:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:65:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:73:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:93:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:100:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:108:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:115:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:136:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:142:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:151:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:158:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:180:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:186:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:195:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:202:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:223:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:229:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:238:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:245:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:266:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:283:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:314:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:323:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:343:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:352:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:366:13 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:386:17 No parameter with name 'status' found.
-e: file:///D:/New%20folder/client-ledger-backend/src/test/kotlin/com/clientledger/core/service/summary/SummaryClientIndexBucketRepositoryTest.kt:396:17 No parameter with name 'status' found.
+import com.clientledger.core.config.ClientLedgerProperties
+import com.clientledger.core.domain.ClientType
+import com.clientledger.core.domain.SummaryClientIndex
+import com.google.cloud.NoCredentials
+import com.google.cloud.firestore.Firestore
+import com.google.cloud.firestore.FirestoreOptions
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.Test
 
-[Incubating] Problems report is available at: file:///D:/New%20folder/client-ledger-backend/build/reports/problems/problems-report.html
+class SummaryClientIndexRepositoryTest {
 
-FAILURE: Build failed with an exception.
+    companion object {
 
-* What went wrong:
-Execution failed for task ':compileTestKotlin' (registered by plugin 'org.jetbrains.kotlin.jvm').
-> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
-   > Compilation error. See log for more details
+        private lateinit var firestore: Firestore
 
-FAILURE: Build failed with an exception.
+        @JvmStatic
+        @BeforeAll
+        fun setup() {
+            firestore = FirestoreOptions.newBuilder()
+                .setProjectId("client-ledger-dashboard")
+                .setHost("127.0.0.1:8080")
+                .setEmulatorHost("127.0.0.1:8080")
+                .setCredentials(NoCredentials.getInstance())
+                .build()
+                .service
+        }
 
-* What went wrong:
-Execution failed for task ':compileTestKotlin' (registered by plugin 'org.jetbrains.kotlin.jvm').
-> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
-   > Compilation error. See log for more details
+        @JvmStatic
+        @AfterAll
+        fun cleanup() {
+            firestore.close()
+        }
+    }
 
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights from a Build Scan (powered by Develocity).
-> Get more help at https://help.gradle.org.
+    private fun repository(): SummaryClientIndexRepository {
+        return SummaryClientIndexRepository(
+            firestore = firestore
+        )
+    }
 
-Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+    @Test
+    fun insertAndFindReceivableClient() {
 
-You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+        val repository = repository()
 
-For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
 
-BUILD FAILED in 17s
-5 actionable tasks: 3 executed, 2 up-to-date
-PS D:\New folder\client-ledger-backend>
+        val index = SummaryClientIndex(
+            clientId = "client-${System.nanoTime()}",
+            amount = 10000,
+            status = ClientType.RECEIVABLE
+        )
+
+        repository.insert(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            bucketId = "bucket_000",
+            index = index
+        )
+
+        val result = repository.find(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000",
+            clientId = index.clientId
+        )
+
+        assertNotNull(result)
+        assertEquals(index.clientId, result!!.clientId)
+        assertEquals(10000, result.amount)
+        assertEquals(ClientType.RECEIVABLE, result.status)
+    }
+
+    @Test
+    fun insertAndFindAdvanceClient() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        val index = SummaryClientIndex(
+            clientId = "client-${System.nanoTime()}",
+            amount = 5000,
+            status = ClientType.ADVANCE
+        )
+
+        repository.insert(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            bucketId = "bucket_000",
+            index = index
+        )
+
+        val result = repository.find(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            status = ClientType.ADVANCE,
+            bucketId = "bucket_000",
+            clientId = index.clientId
+        )
+
+        assertNotNull(result)
+        assertEquals(index.clientId, result!!.clientId)
+        assertEquals(5000, result.amount)
+        assertEquals(ClientType.ADVANCE, result.status)
+    }
+
+    @Test
+    fun differentBucketsKeepClientsSeparate() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        val firstClient = SummaryClientIndex(
+            clientId = "client-1-${System.nanoTime()}",
+            amount = 1000,
+            status = ClientType.RECEIVABLE
+        )
+
+        val secondClient = SummaryClientIndex(
+            clientId = "client-2-${System.nanoTime()}",
+            amount = 2000,
+            status = ClientType.RECEIVABLE
+        )
+
+        repository.insert(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            bucketId = "bucket_000",
+            index = firstClient
+        )
+
+        repository.insert(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            bucketId = "bucket_001",
+            index = secondClient
+        )
+
+        val firstResult = repository.find(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000",
+            clientId = firstClient.clientId
+        )
+
+        val secondResult = repository.find(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_001",
+            clientId = secondClient.clientId
+        )
+
+        assertNotNull(firstResult)
+        assertNotNull(secondResult)
+
+        assertEquals(firstClient.clientId, firstResult!!.clientId)
+        assertEquals(secondClient.clientId, secondResult!!.clientId)
+    }
+
+    @Test
+    fun findReturnsNullWhenClientDoesNotExist() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+
+        val result = repository.find(
+            ownerId = ownerId,
+            yearMonth = "2026-09",
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000",
+            clientId = "missing-client"
+        )
+
+        assertEquals(null, result)
+    }
+
+    @Test
+    fun insertInTransactionAndFind() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        val index = SummaryClientIndex(
+            clientId = "client-${System.nanoTime()}",
+            amount = 7500,
+            status = ClientType.RECEIVABLE
+        )
+
+        firestore.runTransaction { transaction ->
+
+            repository.insertInTransaction(
+                transaction = transaction,
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = "bucket_000",
+                index = index
+            )
+
+            null
+        }.get()
+
+        val result = repository.find(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            status = ClientType.RECEIVABLE,
+            bucketId = "bucket_000",
+            clientId = index.clientId
+        )
+
+        assertNotNull(result)
+        assertEquals(index.clientId, result!!.clientId)
+        assertEquals(7500, result.amount)
+        assertEquals(ClientType.RECEIVABLE, result.status)
+    }
+
+    @Test
+    fun findPageReturnsEmptyWhenNoClientsExist() {
+
+        val repository = repository()
+
+        val result =
+            repository.findPage(
+                ownerId = "owner-${System.nanoTime()}",
+                yearMonth = "2026-09",
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = null
+            )
+
+        assertEquals(0, result.content.size)
+        assertEquals(false, result.hasNext)
+        assertEquals(null, result.nextCursor)
+    }
+
+    @Test
+    fun findPageReturnsSingleClient() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        insertClients(
+            repository = repository,
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            count = 1
+        )
+
+        val result =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = null
+            )
+
+        assertEquals(1, result.content.size)
+        assertEquals("client-000", result.content.first().clientId)
+        assertEquals(false, result.hasNext)
+        assertEquals(null, result.nextCursor)
+    }
+
+    @Test
+    fun findPageReturnsExactly50Clients() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        insertClients(
+            repository = repository,
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            count = 50
+        )
+
+        val result =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = null
+            )
+
+        assertEquals(50, result.content.size)
+        assertEquals("client-000", result.content.first().clientId)
+        assertEquals("client-049", result.content.last().clientId)
+        assertEquals(false, result.hasNext)
+        assertEquals(null, result.nextCursor)
+    }
+
+    @Test
+    fun findPageReturns51ClientsAcrossTwoPages() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        insertClients(
+            repository = repository,
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            count = 51
+        )
+
+        val firstPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = null
+            )
+
+        assertEquals(50, firstPage.content.size)
+        assertEquals("client-000", firstPage.content.first().clientId)
+        assertEquals("client-049", firstPage.content.last().clientId)
+        assertEquals(true, firstPage.hasNext)
+        assertNotNull(firstPage.nextCursor)
+
+        val secondPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = firstPage.nextCursor
+            )
+
+        assertEquals(1, secondPage.content.size)
+        assertEquals("client-050", secondPage.content.first().clientId)
+        assertEquals(false, secondPage.hasNext)
+        assertEquals(null, secondPage.nextCursor)
+    }
+
+    @Test
+    fun findPageReturns100ClientsAcrossTwoPages() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        insertClients(
+            repository = repository,
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            count = 100
+        )
+
+        val firstPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = null
+            )
+
+        val secondPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = firstPage.nextCursor
+            )
+
+        assertEquals(50, firstPage.content.size)
+        assertEquals("client-049", firstPage.content.last().clientId)
+        assertEquals(true, firstPage.hasNext)
+
+        assertEquals(50, secondPage.content.size)
+        assertEquals("client-050", secondPage.content.first().clientId)
+        assertEquals("client-099", secondPage.content.last().clientId)
+        assertEquals(false, secondPage.hasNext)
+        assertEquals(null, secondPage.nextCursor)
+    }
+
+    @Test
+    fun findPageReturns101ClientsAcrossThreePages() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        insertClients(
+            repository = repository,
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            count = 101
+        )
+
+        val firstPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = null
+            )
+
+        val secondPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = firstPage.nextCursor
+            )
+
+        val thirdPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = secondPage.nextCursor
+            )
+
+        assertEquals(50, firstPage.content.size)
+        assertEquals("client-000", firstPage.content.first().clientId)
+        assertEquals("client-049", firstPage.content.last().clientId)
+        assertEquals(true, firstPage.hasNext)
+
+        assertEquals(50, secondPage.content.size)
+        assertEquals("client-050", secondPage.content.first().clientId)
+        assertEquals("client-099", secondPage.content.last().clientId)
+        assertEquals(true, secondPage.hasNext)
+
+        assertEquals(1, thirdPage.content.size)
+        assertEquals("client-100", thirdPage.content.first().clientId)
+        assertEquals(false, thirdPage.hasNext)
+        assertEquals(null, thirdPage.nextCursor)
+    }
+
+    @Test
+    fun findPageDoesNotSkipOrDuplicateClients() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        insertClients(
+            repository = repository,
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            count = 101
+        )
+
+        val firstPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = null
+            )
+
+        val secondPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = firstPage.nextCursor
+            )
+
+        val thirdPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 50,
+                cursor = secondPage.nextCursor
+            )
+
+        val clientIds =
+            firstPage.content.map { it.clientId } +
+                    secondPage.content.map { it.clientId } +
+                    thirdPage.content.map { it.clientId }
+
+        assertEquals(101, clientIds.size)
+        assertEquals(101, clientIds.distinct().size)
+
+        assertEquals(
+            (0..100).map { "client-%03d".format(it) },
+            clientIds
+        )
+    }
+
+    @Test
+    fun findPageHandlesMultipleBuckets() {
+
+        val repository = repository()
+
+        val ownerId = "owner-${System.nanoTime()}"
+        val yearMonth = "2026-09"
+
+        insertClients(
+            repository = repository,
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            count = 301
+        )
+
+        val firstPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 100,
+                cursor = null
+            )
+
+        val secondPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 100,
+                cursor = firstPage.nextCursor
+            )
+
+        val thirdPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 100,
+                cursor = secondPage.nextCursor
+            )
+
+        val fourthPage =
+            repository.findPage(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                status = ClientType.RECEIVABLE,
+                size = 100,
+                cursor = thirdPage.nextCursor
+            )
+
+        val clientIds =
+            firstPage.content.map { it.clientId } +
+                    secondPage.content.map { it.clientId } +
+                    thirdPage.content.map { it.clientId } +
+                    fourthPage.content.map { it.clientId }
+
+        assertEquals(100, firstPage.content.size)
+        assertEquals(100, secondPage.content.size)
+        assertEquals(100, thirdPage.content.size)
+        assertEquals(1, fourthPage.content.size)
+
+        assertEquals(301, clientIds.size)
+        assertEquals(301, clientIds.distinct().size)
+
+        assertEquals("client-000", clientIds.first())
+        assertEquals("client-300", clientIds.last())
+    }
+
+    @Test
+    fun findPageRejectsInvalidCursor() {
+
+        val repository = repository()
+
+        val exception =
+            assertThrows<IllegalArgumentException> {
+
+                repository.findPage(
+                    ownerId = "owner-${System.nanoTime()}",
+                    yearMonth = "2026-09",
+                    status = ClientType.RECEIVABLE,
+                    size = 50,
+                    cursor = "invalid-cursor"
+                )
+            }
+
+        assertEquals(
+            "Invalid cursor",
+            exception.message
+        )
+    }
+
+
+    private fun insertClients(
+        repository: SummaryClientIndexRepository,
+        ownerId: String,
+        yearMonth: String,
+        count: Int
+    ) {
+
+        val bucketIds =
+            if (count <= 300) {
+                listOf("bucket_000")
+            } else {
+                listOf("bucket_000", "bucket_001")
+            }
+
+        bucketIds.forEach { bucketId ->
+
+            firestore
+                .collection("owners")
+                .document(ownerId)
+                .collection("summary_client_index")
+                .document(yearMonth)
+                .collection("status")
+                .document(ClientType.RECEIVABLE.name.lowercase())
+                .collection("buckets")
+                .document(bucketId)
+                .set(
+                    mapOf(
+                        "capacity" to 300,
+                        "size" to if (bucketId == "bucket_000") {
+                            minOf(count, 300)
+                        } else {
+                            count - 300
+                        }
+                    )
+                )
+                .get()
+        }
+
+        repeat(count) { index ->
+
+            val bucketId =
+                if (index < 300) {
+                    "bucket_000"
+                } else {
+                    "bucket_001"
+                }
+
+            repository.insert(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = bucketId,
+                index = SummaryClientIndex(
+                    clientId = "client-%03d".format(index),
+                    amount = index.toLong(),
+                    status = ClientType.RECEIVABLE
+                )
+            )
+        }
+    }
+
+
+    @Test
+    fun `copy index preserves same bucket and client data`() {
+
+        val ownerId = "owner-index-copy-test"
+        val previousYearMonth = "2026-09"
+        val newYearMonth = "2026-10"
+        val status = ClientType.RECEIVABLE
+        val bucketId = "bucket_000"
+
+        val bucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = ClientLedgerProperties()
+            )
+
+        val indexRepository =
+            SummaryClientIndexRepository(
+                firestore = firestore
+            )
+
+        // Create source bucket.
+        firestore
+            .collection("owners")
+            .document(ownerId)
+            .collection("summary_client_index")
+            .document(previousYearMonth)
+            .collection("status")
+            .document(status.name.lowercase())
+            .collection("buckets")
+            .document(bucketId)
+            .set(
+                mapOf(
+                    "capacity" to 300L,
+                    "size" to 2L
+                )
+            )
+            .get()
+
+        val clientA =
+            SummaryClientIndex(
+                clientId = "client-A",
+                amount = 15_000,
+                status = status
+            )
+
+        val clientB =
+            SummaryClientIndex(
+                clientId = "client-B",
+                amount = 8_000,
+                status = status
+            )
+
+        indexRepository.insert(
+            ownerId = ownerId,
+            yearMonth = previousYearMonth,
+            bucketId = bucketId,
+            index = clientA
+        )
+
+        indexRepository.insert(
+            ownerId = ownerId,
+            yearMonth = previousYearMonth,
+            bucketId = bucketId,
+            index = clientB
+        )
+
+        // Read source data.
+        val sourceBucket =
+            bucketRepository.find(
+                ownerId = ownerId,
+                yearMonth = previousYearMonth,
+                status = status,
+                bucketId = bucketId
+            )
+
+        val sourceClients =
+            indexRepository.findAllInBucket(
+                ownerId = ownerId,
+                yearMonth = previousYearMonth,
+                status = status,
+                bucketId = bucketId
+            )
+
+        requireNotNull(sourceBucket)
+
+        // Copy bucket + clients atomically.
+        firestore
+            .runTransaction { transaction ->
+
+                bucketRepository.copyBucketInTransaction(
+                    transaction = transaction,
+                    ownerId = ownerId,
+                    previousYearMonth = previousYearMonth,
+                    newYearMonth = newYearMonth,
+                    status = status,
+                    bucketId = bucketId
+                )
+
+                sourceClients.forEach { index ->
+
+                    indexRepository.copyInTransaction(
+                        transaction = transaction,
+                        ownerId = ownerId,
+                        newYearMonth = newYearMonth,
+                        status = status,
+                        bucketId = bucketId,
+                        index = index
+                    )
+                }
+
+                null
+            }
+            .get()
+
+        // Verify bucket ID was preserved.
+        val newBucketIds =
+            bucketRepository.findBucketIds(
+                ownerId = ownerId,
+                yearMonth = newYearMonth,
+                status = status
+            )
+
+        assertEquals(
+            listOf(bucketId),
+            newBucketIds
+        )
+
+        // Verify bucket metadata was preserved.
+        val newBucket =
+            bucketRepository.find(
+                ownerId = ownerId,
+                yearMonth = newYearMonth,
+                status = status,
+                bucketId = bucketId
+            )
+
+        assertEquals(
+            sourceBucket,
+            newBucket
+        )
+
+        // Verify client index data was preserved.
+        val newClients =
+            indexRepository.findAllInBucket(
+                ownerId = ownerId,
+                yearMonth = newYearMonth,
+                status = status,
+                bucketId = bucketId
+            )
+
+        assertEquals(
+            sourceClients,
+            newClients
+        )
+    }
+}
