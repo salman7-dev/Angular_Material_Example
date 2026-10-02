@@ -1,24 +1,43 @@
 package com.clientledger.core.repository.summary
 
-import com.clientledger.core.config.ClientLedgerProperties
+import com.clientledger.core.domain.ClientType
+import com.clientledger.core.domain.SummaryClientIndex
+import com.clientledger.core.pagination.PageCursor
+import com.clientledger.core.pagination.PageResult
 import com.google.cloud.firestore.CollectionReference
 import com.google.cloud.firestore.DocumentReference
 import com.google.cloud.firestore.DocumentSnapshot
 import com.google.cloud.firestore.Firestore
 import com.google.cloud.firestore.Transaction
 import org.springframework.stereotype.Repository
+import java.util.Base64
 
-data class SummaryClientIndexBucketAllocationPlan(
+data class SummaryClientIndexLocation(
     val bucketId: String,
+    val index: SummaryClientIndex,
+    val bucketExists: Boolean,
+    val bucketSize: Long
+)
+
+data class SummaryClientIndexUpsertPlan(
+    val clientReference: DocumentReference,
     val bucketReference: DocumentReference,
-    val currentSize: Long,
-    val isNewBucket: Boolean
+    val index: SummaryClientIndex,
+    val indexExists: Boolean,
+    val bucketExists: Boolean,
+    val currentBucketSize: Long,
+    val capacity: Long
+)
+
+data class SummaryClientIndexDeletePlan(
+    val clientReference: DocumentReference,
+    val bucketReference: DocumentReference,
+    val currentBucketSize: Long
 )
 
 @Repository
-class SummaryClientIndexBucketRepository(
-    private val firestore: Firestore,
-    private val properties: ClientLedgerProperties
+class SummaryClientIndexRepository(
+    private val firestore: Firestore
 ) {
 
     private fun bucketCollection(
@@ -42,142 +61,106 @@ class SummaryClientIndexBucketRepository(
             .collection("buckets")
     }
 
-    fun allocateBucket(
-        ownerId: String,
-        yearMonth: String
-    ): String {
-
-        val capacity =
-            properties.summary.indexBucketCapacity
-
-        require(capacity > 0) {
-            "summary.index-bucket-capacity must be greater than zero"
-        }
-
-        val collection =
-            bucketCollection(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        return firestore.runTransaction { transaction ->
-
-            val buckets = transaction
-                .get(
-                    collection.orderBy("__name__")
-                )
-                .get()
-                .documents
-
-            allocateFromSnapshots(
-                transaction = transaction,
-                collection = collection,
-                snapshots = buckets,
-                capacity = capacity
-            )
-        }.get()
-    }
-
-    fun allocateBucketInTransaction(
-        transaction: Transaction,
-        ownerId: String,
-        yearMonth: String
-    ): String {
-
-        val capacity =
-            properties.summary.indexBucketCapacity
-
-        require(capacity > 0) {
-            "summary.index-bucket-capacity must be greater than zero"
-        }
-
-        val collection =
-            bucketCollection(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-        val buckets = transaction
-            .get(
-                collection.orderBy("__name__")
-            )
-            .get()
-            .documents
-
-        return allocateFromSnapshots(
-            transaction = transaction,
-            collection = collection,
-            snapshots = buckets,
-            capacity = capacity
-        )
-    }
-
-    private fun allocateFromSnapshots(
-        transaction: Transaction,
-        collection: CollectionReference,
-        snapshots: List<DocumentSnapshot>,
-        capacity: Int
-    ): String {
-
-        val availableBucket = snapshots.firstOrNull { snapshot ->
-            val size = snapshot.getLong("size") ?: 0
-            size < capacity
-        }
-
-        if (availableBucket != null) {
-
-            val currentSize =
-                availableBucket.getLong("size") ?: 0
-
-            transaction.update(
-                availableBucket.reference,
-                "size",
-                currentSize + 1
-            )
-
-            return availableBucket.id
-        }
-
-        val bucketId =
-            nextBucketId(snapshots)
-
-        val bucketReference =
-            collection.document(bucketId)
-
-        transaction.set(
-            bucketReference,
-            mapOf(
-                "capacity" to capacity,
-                "size" to 1L
-            )
-        )
-
-        return bucketId
-    }
-
-    fun find(
+    private fun bucketReference(
         ownerId: String,
         yearMonth: String,
         bucketId: String
-    ): Map<String, Long>? {
-
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
-
-        require(yearMonth.matches(Regex("\\d{4}-\\d{2}"))) {
-            "yearMonth must be in yyyy-MM format"
-        }
+    ): DocumentReference {
 
         require(bucketId.isNotBlank()) {
             "bucketId must not be blank"
         }
 
+        return bucketCollection(
+            ownerId = ownerId,
+            yearMonth = yearMonth
+        ).document(bucketId)
+    }
+
+    private fun clientReference(
+        ownerId: String,
+        yearMonth: String,
+        bucketId: String,
+        clientId: String
+    ): DocumentReference {
+
+        require(bucketId.isNotBlank()) {
+            "bucketId must not be blank"
+        }
+
+        require(clientId.isNotBlank()) {
+            "clientId must not be blank"
+        }
+
+        return bucketReference(
+            ownerId = ownerId,
+            yearMonth = yearMonth,
+            bucketId = bucketId
+        )
+            .collection("clients")
+            .document(clientId)
+    }
+
+    fun insert(
+        ownerId: String,
+        yearMonth: String,
+        bucketId: String,
+        index: SummaryClientIndex
+    ): SummaryClientIndex {
+
         val reference =
-            bucketCollection(
+            clientReference(
                 ownerId = ownerId,
-                yearMonth = yearMonth
-            ).document(bucketId)
+                yearMonth = yearMonth,
+                bucketId = bucketId,
+                clientId = index.clientId
+            )
+
+        reference
+            .set(toFirestoreMap(index))
+            .get()
+
+        return index
+    }
+
+    fun insertInTransaction(
+        transaction: Transaction,
+        ownerId: String,
+        yearMonth: String,
+        bucketId: String,
+        index: SummaryClientIndex
+    ): SummaryClientIndex {
+
+        val reference =
+            clientReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = bucketId,
+                clientId = index.clientId
+            )
+
+        transaction.set(
+            reference,
+            toFirestoreMap(index)
+        )
+
+        return index
+    }
+
+    fun find(
+        ownerId: String,
+        yearMonth: String,
+        bucketId: String,
+        clientId: String
+    ): SummaryClientIndex? {
+
+        val reference =
+            clientReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = bucketId,
+                clientId = clientId
+            )
 
         val snapshot =
             reference
@@ -188,17 +171,240 @@ class SummaryClientIndexBucketRepository(
             return null
         }
 
-        return mapOf(
-            "capacity" to (snapshot.getLong("capacity") ?: 0),
-            "size" to (snapshot.getLong("size") ?: 0)
+        return toIndex(snapshot)
+    }
+
+    /**
+     * Finds a client index directly in the client's physical bucket.
+     *
+     * No status bucket scan is required.
+     */
+    fun findInTransaction(
+        transaction: Transaction,
+        ownerId: String,
+        yearMonth: String,
+        bucketId: String,
+        clientId: String
+    ): SummaryClientIndexLocation? {
+
+        val clientRef =
+            clientReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = bucketId,
+                clientId = clientId
+            )
+
+        val bucketRef =
+            bucketReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = bucketId
+            )
+
+        val clientSnapshot =
+            transaction
+                .get(clientRef)
+                .get()
+
+        if (!clientSnapshot.exists()) {
+            return null
+        }
+
+        val bucketSnapshot =
+            transaction
+                .get(bucketRef)
+                .get()
+
+        return SummaryClientIndexLocation(
+            bucketId = bucketId,
+            index = toIndex(clientSnapshot),
+            bucketExists = bucketSnapshot.exists(),
+            bucketSize =
+            bucketSnapshot.getLong("size") ?: 0L
         )
     }
 
-    fun planBucketAllocationInTransaction(
+    /**
+     * READ / PLAN only.
+     *
+     * Determines whether the target index already exists and reads
+     * the current bucket metadata.
+     */
+    fun planUpsertInTransaction(
         transaction: Transaction,
         ownerId: String,
+        yearMonth: String,
+        bucketId: String,
+        index: SummaryClientIndex,
+        capacity: Long
+    ): SummaryClientIndexUpsertPlan {
+
+        require(capacity > 0) {
+            "capacity must be greater than zero"
+        }
+
+        val clientRef =
+            clientReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = bucketId,
+                clientId = index.clientId
+            )
+
+        val bucketRef =
+            bucketReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = bucketId
+            )
+
+        val clientSnapshot =
+            transaction
+                .get(clientRef)
+                .get()
+
+        val bucketSnapshot =
+            transaction
+                .get(bucketRef)
+                .get()
+
+        return SummaryClientIndexUpsertPlan(
+            clientReference = clientRef,
+            bucketReference = bucketRef,
+            index = index,
+            indexExists = clientSnapshot.exists(),
+            bucketExists = bucketSnapshot.exists(),
+            currentBucketSize =
+            bucketSnapshot.getLong("size") ?: 0L,
+            capacity = capacity
+        )
+    }
+
+    /**
+     * WRITE / APPLY.
+     *
+     * Existing index:
+     *   update index only.
+     *   Bucket size remains unchanged.
+     *
+     * Missing index:
+     *   create index.
+     *   Bucket size increases by one.
+     */
+    fun applyUpsertPlanInTransaction(
+        transaction: Transaction,
+        plan: SummaryClientIndexUpsertPlan
+    ): SummaryClientIndex {
+
+        if (plan.indexExists) {
+
+            transaction.set(
+                plan.clientReference,
+                toFirestoreMap(plan.index)
+            )
+
+            return plan.index
+        }
+
+        require(
+            !plan.bucketExists ||
+                    plan.currentBucketSize < plan.capacity
+        ) {
+            "Summary index bucket is full: ${plan.bucketReference.path}"
+        }
+
+        if (!plan.bucketExists) {
+
+            transaction.set(
+                plan.bucketReference,
+                mapOf(
+                    "capacity" to plan.capacity,
+                    "size" to 1L
+                )
+            )
+
+        } else {
+
+            transaction.update(
+                plan.bucketReference,
+                "size",
+                plan.currentBucketSize + 1L
+            )
+        }
+
+        transaction.set(
+            plan.clientReference,
+            toFirestoreMap(plan.index)
+        )
+
+        return plan.index
+    }
+
+    /**
+     * READ / PLAN only.
+     */
+    fun planDeleteInTransaction(
+        transaction: Transaction,
+        location: SummaryClientIndexLocation,
+        ownerId: String,
         yearMonth: String
-    ): SummaryClientIndexBucketAllocationPlan {
+    ): SummaryClientIndexDeletePlan {
+
+        val clientRef =
+            clientReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = location.bucketId,
+                clientId = location.index.clientId
+            )
+
+        val bucketRef =
+            bucketReference(
+                ownerId = ownerId,
+                yearMonth = yearMonth,
+                bucketId = location.bucketId
+            )
+
+        return SummaryClientIndexDeletePlan(
+            clientReference = clientRef,
+            bucketReference = bucketRef,
+            currentBucketSize = location.bucketSize
+        )
+    }
+
+    /**
+     * WRITE / APPLY.
+     *
+     * Removes the client index and releases one bucket slot.
+     */
+    fun applyDeletePlanInTransaction(
+        transaction: Transaction,
+        plan: SummaryClientIndexDeletePlan
+    ) {
+
+        transaction.delete(
+            plan.clientReference
+        )
+
+        require(plan.currentBucketSize > 0) {
+            "Summary index bucket size cannot be negative: " +
+                    plan.bucketReference.path
+        }
+
+        transaction.update(
+            plan.bucketReference,
+            "size",
+            plan.currentBucketSize - 1L
+        )
+    }
+
+    fun findPage(
+        ownerId: String,
+        yearMonth: String,
+        size: Int,
+        cursor: String?
+    ): PageResult<SummaryClientIndex> {
 
         require(ownerId.isNotBlank()) {
             "ownerId must not be blank"
@@ -208,87 +414,248 @@ class SummaryClientIndexBucketRepository(
             "yearMonth must be in yyyy-MM format"
         }
 
-        val capacity =
-            properties.summary.indexBucketCapacity
-
-        require(capacity > 0) {
-            "summary.index-bucket-capacity must be greater than zero"
+        require(size > 0) {
+            "size must be greater than zero"
         }
 
-        val collection =
-            bucketCollection(
-                ownerId = ownerId,
-                yearMonth = yearMonth
+        val pageCursor =
+            decodeCursor(cursor)
+
+        var currentBucketId =
+            pageCursor?.bucketId
+
+        var currentClientId =
+            pageCursor?.clientId
+
+        val result =
+            mutableListOf<SummaryClientIndex>()
+
+        while (result.size < size) {
+
+            val bucketId =
+                currentBucketId
+                    ?: findFirstBucketId(
+                        ownerId = ownerId,
+                        yearMonth = yearMonth
+                    )
+
+            if (bucketId == null) {
+                break
+            }
+
+            val remaining =
+                size - result.size
+
+            val clientCollection =
+                bucketCollection(
+                    ownerId = ownerId,
+                    yearMonth = yearMonth
+                )
+                    .document(bucketId)
+                    .collection("clients")
+
+            val clientQuery =
+                clientCollection
+                    .orderBy("__name__")
+                    .let { query ->
+
+                        if (
+                            currentBucketId == bucketId &&
+                            currentClientId != null
+                        ) {
+                            query.startAfter(currentClientId)
+                        } else {
+                            query
+                        }
+                    }
+                    .limit(remaining + 1)
+
+            val snapshots =
+                clientQuery
+                    .get()
+                    .get()
+                    .documents
+
+            val hasMoreInCurrentBucket =
+                snapshots.size > remaining
+
+            val documentsToReturn =
+                if (hasMoreInCurrentBucket) {
+                    snapshots.take(remaining)
+                } else {
+                    snapshots
+                }
+
+            result.addAll(
+                documentsToReturn.map(::toIndex)
             )
 
-        val snapshots = transaction
-            .get(
-                collection.orderBy("__name__")
-            )
+            if (hasMoreInCurrentBucket) {
+
+                val lastDocument =
+                    documentsToReturn.last()
+
+                return PageResult(
+                    content = result,
+                    hasNext = true,
+                    nextCursor =
+                    encodeCursor(
+                        PageCursor(
+                            bucketId = bucketId,
+                            clientId = lastDocument.id
+                        )
+                    )
+                )
+            }
+
+            val nextBucketId =
+                findNextBucketId(
+                    ownerId = ownerId,
+                    yearMonth = yearMonth,
+                    bucketId = bucketId
+                )
+
+            if (result.size == size) {
+
+                val lastDocument =
+                    documentsToReturn.lastOrNull()
+
+                if (
+                    nextBucketId != null &&
+                    lastDocument != null
+                ) {
+
+                    return PageResult(
+                        content = result,
+                        hasNext = true,
+                        nextCursor =
+                        encodeCursor(
+                            PageCursor(
+                                bucketId = bucketId,
+                                clientId = lastDocument.id
+                            )
+                        )
+                    )
+                }
+
+                return PageResult(
+                    content = result,
+                    hasNext = false,
+                    nextCursor = null
+                )
+            }
+
+            if (nextBucketId == null) {
+                break
+            }
+
+            currentBucketId = nextBucketId
+            currentClientId = null
+        }
+
+        return PageResult(
+            content = result,
+            hasNext = false,
+            nextCursor = null
+        )
+    }
+
+    private fun findFirstBucketId(
+        ownerId: String,
+        yearMonth: String
+    ): String? {
+
+        return bucketCollection(
+            ownerId = ownerId,
+            yearMonth = yearMonth
+        )
+            .orderBy("__name__")
+            .limit(1)
+            .get()
             .get()
             .documents
-
-        val availableBucket = snapshots.firstOrNull { snapshot ->
-            val size = snapshot.getLong("size") ?: 0
-            size < capacity
-        }
-
-        if (availableBucket != null) {
-
-            return SummaryClientIndexBucketAllocationPlan(
-                bucketId = availableBucket.id,
-                bucketReference = availableBucket.reference,
-                currentSize =
-                availableBucket.getLong("size") ?: 0,
-                isNewBucket = false
-            )
-        }
-
-        val bucketId =
-            nextBucketId(snapshots)
-
-        return SummaryClientIndexBucketAllocationPlan(
-            bucketId = bucketId,
-            bucketReference = collection.document(bucketId),
-            currentSize = 0,
-            isNewBucket = true
-        )
+            .firstOrNull()
+            ?.id
     }
 
-    fun applyBucketAllocationInTransaction(
-        transaction: Transaction,
-        plan: SummaryClientIndexBucketAllocationPlan
-    ) {
-
-        val newSize =
-            plan.currentSize + 1
-
-        if (plan.isNewBucket) {
-
-            transaction.set(
-                plan.bucketReference,
-                mapOf(
-                    "capacity" to properties.summary.indexBucketCapacity,
-                    "size" to newSize
-                )
-            )
-
-            return
-        }
-
-        transaction.update(
-            plan.bucketReference,
-            "size",
-            newSize
-        )
-    }
-
-    fun removeClientFromBucketInTransaction(
-        transaction: Transaction,
+    private fun findNextBucketId(
         ownerId: String,
         yearMonth: String,
         bucketId: String
-    ) {
+    ): String? {
+
+        return bucketCollection(
+            ownerId = ownerId,
+            yearMonth = yearMonth
+        )
+            .orderBy("__name__")
+            .startAfter(bucketId)
+            .limit(1)
+            .get()
+            .get()
+            .documents
+            .firstOrNull()
+            ?.id
+    }
+
+    private fun encodeCursor(
+        cursor: PageCursor
+    ): String {
+
+        val raw =
+            "${cursor.bucketId}|${cursor.clientId}"
+
+        return Base64
+            .getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(
+                raw.toByteArray()
+            )
+    }
+
+    private fun decodeCursor(
+        cursor: String?
+    ): PageCursor? {
+
+        if (cursor.isNullOrBlank()) {
+            return null
+        }
+
+        return try {
+
+            val decoded =
+                String(
+                    Base64
+                        .getUrlDecoder()
+                        .decode(cursor)
+                )
+
+            val parts =
+                decoded.split("|")
+
+            require(parts.size == 2)
+            require(parts[0].isNotBlank())
+            require(parts[1].isNotBlank())
+
+            PageCursor(
+                bucketId = parts[0],
+                clientId = parts[1]
+            )
+
+        } catch (exception: Exception) {
+
+            throw IllegalArgumentException(
+                "Invalid cursor",
+                exception
+            )
+        }
+    }
+
+    fun findAllInBucket(
+        ownerId: String,
+        yearMonth: String,
+        bucketId: String
+    ): List<SummaryClientIndex> {
 
         require(ownerId.isNotBlank()) {
             "ownerId must not be blank"
@@ -302,92 +669,29 @@ class SummaryClientIndexBucketRepository(
             "bucketId must not be blank"
         }
 
-        val bucketReference =
-            bucketCollection(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            ).document(bucketId)
-
-        val snapshot =
-            transaction
-                .get(bucketReference)
-                .get()
-
-        require(snapshot.exists()) {
-            "Summary index bucket does not exist: " +
-                    "$ownerId/$yearMonth/$bucketId"
-        }
-
-        val currentSize =
-            snapshot.getLong("size") ?: 0
-
-        require(currentSize > 0) {
-            "Summary index bucket size cannot be negative: " +
-                    "$ownerId/$yearMonth/$bucketId"
-        }
-
-        transaction.update(
-            bucketReference,
-            "size",
-            currentSize - 1
-        )
-    }
-
-    private fun nextBucketId(
-        documents: List<DocumentSnapshot>
-    ): String {
-
-        val nextNumber = documents
-            .mapNotNull { snapshot ->
-                snapshot.id
-                    .removePrefix("bucket_")
-                    .toIntOrNull()
-            }
-            .maxOrNull()
-            ?.plus(1)
-            ?: 0
-
-        return "bucket_${nextNumber.toString().padStart(3, '0')}"
-    }
-
-    fun findBucketIds(
-        ownerId: String,
-        yearMonth: String
-    ): List<String> {
-
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
-
-        require(yearMonth.matches(Regex("\\d{4}-\\d{2}"))) {
-            "yearMonth must be in yyyy-MM format"
-        }
-
         return bucketCollection(
             ownerId = ownerId,
             yearMonth = yearMonth
         )
+            .document(bucketId)
+            .collection("clients")
             .orderBy("__name__")
             .get()
             .get()
             .documents
-            .map { it.id }
+            .map(::toIndex)
     }
 
-    fun copyBucketInTransaction(
+    fun copyInTransaction(
         transaction: Transaction,
         ownerId: String,
-        previousYearMonth: String,
         newYearMonth: String,
-        bucketId: String
-    ) {
+        bucketId: String,
+        index: SummaryClientIndex
+    ): SummaryClientIndex {
 
         require(ownerId.isNotBlank()) {
             "ownerId must not be blank"
-        }
-
-        require(previousYearMonth.matches(Regex("\\d{4}-\\d{2}"))) {
-            "previousYearMonth must be in yyyy-MM format"
         }
 
         require(newYearMonth.matches(Regex("\\d{4}-\\d{2}"))) {
@@ -398,41 +702,54 @@ class SummaryClientIndexBucketRepository(
             "bucketId must not be blank"
         }
 
-        val sourceReference =
-            bucketCollection(
-                ownerId = ownerId,
-                yearMonth = previousYearMonth
-            ).document(bucketId)
-
-        val targetReference =
-            bucketCollection(
-                ownerId = ownerId,
-                yearMonth = newYearMonth
-            ).document(bucketId)
-
-        val sourceSnapshot =
-            transaction
-                .get(sourceReference)
-                .get()
-
-        require(sourceSnapshot.exists()) {
-            "Summary index bucket does not exist: " +
-                    "$ownerId/$previousYearMonth/$bucketId"
+        require(index.clientId.isNotBlank()) {
+            "clientId must not be blank"
         }
 
-        val capacity =
-            sourceSnapshot.getLong("capacity") ?: 0
-
-        val size =
-            sourceSnapshot.getLong("size") ?: 0
+        val targetReference =
+            clientReference(
+                ownerId = ownerId,
+                yearMonth = newYearMonth,
+                bucketId = bucketId,
+                clientId = index.clientId
+            )
 
         transaction.set(
             targetReference,
-            mapOf(
-                "capacity" to capacity,
-                "size" to size
-            )
+            toFirestoreMap(index)
+        )
+
+        return index
+    }
+
+    private fun toFirestoreMap(
+        index: SummaryClientIndex
+    ): Map<String, Any> {
+
+        return mapOf(
+            "clientId" to index.clientId,
+            "amount" to index.amount,
+            "status" to index.status.name
+        )
+    }
+
+    private fun toIndex(
+        snapshot: DocumentSnapshot
+    ): SummaryClientIndex {
+
+        return SummaryClientIndex(
+            clientId =
+            snapshot.getString("clientId")
+                ?: snapshot.id,
+
+            amount =
+            snapshot.getLong("amount")
+                ?: 0L,
+
+            status =
+            snapshot.getString("status")
+                ?.let(ClientType::valueOf)
+                ?: ClientType.SETTLED
         )
     }
 }
-
