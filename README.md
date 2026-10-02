@@ -4,22 +4,19 @@ Java HotSpot(TM) 64-Bit Server VM warning: Sharing is only supported for boot lo
 > Task :test
 
 SummaryIntegrationTest > getReceivableClientsReturnsPaginatedClients() FAILED
-    org.opentest4j.AssertionFailedError at SummaryIntegrationTest.kt:354
+    org.opentest4j.AssertionFailedError at SummaryIntegrationTest.kt:353
 
 SummaryIntegrationTest > getAdvanceClientsReturnsPaginatedClients() FAILED
-    org.opentest4j.AssertionFailedError at SummaryIntegrationTest.kt:444
+    org.opentest4j.AssertionFailedError at SummaryIntegrationTest.kt:442
 
 SummaryClientIndexBucketRepositoryTest > bucketUsesFlatYearMonthStructure() FAILED
-    org.opentest4j.AssertionFailedError at SummaryClientIndexBucketRepositoryTest.kt:268
-
-SummaryClientIndexBucketRepositoryTest > planBucketAllocationInTransactionPlansNewBucketWhenAllAreFull() FAILED
-    org.opentest4j.AssertionFailedError at SummaryClientIndexBucketRepositoryTest.kt:362
-
-SummaryClientIndexBucketRepositoryTest > allocateClient301UsesBucket001() FAILED
-    org.opentest4j.AssertionFailedError at SummaryClientIndexBucketRepositoryTest.kt:98
+    org.opentest4j.AssertionFailedError at SummaryClientIndexBucketRepositoryTest.kt:280
 
 SummaryClientIndexBucketRepositoryTest > allocateFirstClientUsesBucket000() FAILED
     org.opentest4j.AssertionFailedError at SummaryClientIndexBucketRepositoryTest.kt:75
+
+SummaryClientIndexRepositoryTest > findPageReturnsExactly50Clients() FAILED
+    org.opentest4j.AssertionFailedError at SummaryClientIndexRepositoryTest.kt:405
 
 SummaryClientIndexRepositoryTest > findPageReturns100ClientsAcrossTwoPages() FAILED
     org.opentest4j.AssertionFailedError at SummaryClientIndexRepositoryTest.kt:469
@@ -37,7 +34,7 @@ Java HotSpot(TM) 64-Bit Server VM warning: Sharing is only supported for boot lo
 
 > Task :test
 
-248 tests completed, 10 failed
+248 tests completed, 9 failed
 
 > Task :test FAILED
 
@@ -45,442 +42,152 @@ Java HotSpot(TM) 64-Bit Server VM warning: Sharing is only supported for boot lo
 
 FAILURE: Build failed with an exception.
 
-* What went wrong:
-Execution failed for task ':test'.
-> There were failing tests. See the report at: file:///D:/New%20folder/client-ledger-backend/build/reports/tests/test/index.html
 
-* Try:
-> Run with --scan to get full insights from a Build Scan (powered by Develocity).
-
-Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
-
-You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
-
-For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
-
-BUILD FAILED in 1m 32s
-6 actionable tasks: 2 executed, 4 up-to-date
-PS D:\New folder\client-ledger-backend> 
-getAdvanceClientsReturnsPaginatedClients()
-org.opentest4j.AssertionFailedError: expected: <2> but was: <0>
+findPageHandlesMultipleBuckets()
+org.opentest4j.AssertionFailedError: expected: <client-000> but was: <client-003>
 	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
 	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
 	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
-	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
-	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:145)
-	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:531)
-	at com.clientledger.core.integration.summary.SummaryIntegrationTest.getAdvanceClientsReturnsPaginatedClients(SummaryIntegrationTest.kt:444)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+	at kotlin.test.junit5.JUnit5Asserter.assertEquals(JUnitSupport.kt:32)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals(Assertions.kt:63)
+	at kotlin.test.AssertionsKt.assertEquals(Unknown Source)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals$default(Assertions.kt:62)
+	at kotlin.test.AssertionsKt.assertEquals$default(Unknown Source)
+	at com.clientledger.core.repository.summary.SummaryClientIndexRepositoryTest.findPageHandlesMultipleBuckets(SummaryClientIndexRepositoryTest.kt:604)
 	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 
-getReceivableClientsReturnsPaginatedClients()
-org.opentest4j.AssertionFailedError: expected: <2> but was: <0>
-	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
-	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
-	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
-	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
-	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:145)
-	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:531)
-	at com.clientledger.core.integration.summary.SummaryIntegrationTest.getReceivableClientsReturnsPaginatedClients(SummaryIntegrationTest.kt:354)
+	findPageReturns100ClientsAcrossTwoPages()
+	org.opentest4j.AssertionFailedError: Expected value to be false.
+	at org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:38)
+	at org.junit.jupiter.api.Assertions.fail(Assertions.java:138)
+	at kotlin.test.junit5.JUnit5Asserter.fail(JUnitSupport.kt:56)
+	at kotlin.test.Asserter$DefaultImpls.assertTrue(Assertions.kt:694)
+	at kotlin.test.junit5.JUnit5Asserter.assertTrue(JUnitSupport.kt:30)
+	at kotlin.test.Asserter$DefaultImpls.assertTrue(Assertions.kt:704)
+	at kotlin.test.junit5.JUnit5Asserter.assertTrue(JUnitSupport.kt:30)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertFalse(Assertions.kt:58)
+	at kotlin.test.AssertionsKt.assertFalse(Unknown Source)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertFalse$default(Assertions.kt:56)
+	at kotlin.test.AssertionsKt.assertFalse$default(Unknown Source)
+	at com.clientledger.core.repository.summary.SummaryClientIndexRepositoryTest.findPageReturns100ClientsAcrossTwoPages(SummaryClientIndexRepositoryTest.kt:469)
 	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 
- allocateClient301UsesBucket001()
- org.opentest4j.AssertionFailedError: expected: <bucket_001> but was: <bucket_003>
+	findPageReturns51ClientsAcrossTwoPages()
+	org.opentest4j.AssertionFailedError: expected: <1> but was: <50>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+	at kotlin.test.junit5.JUnit5Asserter.assertEquals(JUnitSupport.kt:32)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals(Assertions.kt:63)
+	at kotlin.test.AssertionsKt.assertEquals(Unknown Source)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals$default(Assertions.kt:62)
+	at kotlin.test.AssertionsKt.assertEquals$default(Unknown Source)
+	at com.clientledger.core.repository.summary.SummaryClientIndexRepositoryTest.findPageReturns51ClientsAcrossTwoPages(SummaryClientIndexRepositoryTest.kt:436)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+	findPageReturnsExactly50Clients()
+	org.opentest4j.AssertionFailedError: Expected value to be false.
+	at org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:38)
+	at org.junit.jupiter.api.Assertions.fail(Assertions.java:138)
+	at kotlin.test.junit5.JUnit5Asserter.fail(JUnitSupport.kt:56)
+	at kotlin.test.Asserter$DefaultImpls.assertTrue(Assertions.kt:694)
+	at kotlin.test.junit5.JUnit5Asserter.assertTrue(JUnitSupport.kt:30)
+	at kotlin.test.Asserter$DefaultImpls.assertTrue(Assertions.kt:704)
+	at kotlin.test.junit5.JUnit5Asserter.assertTrue(JUnitSupport.kt:30)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertFalse(Assertions.kt:58)
+	at kotlin.test.AssertionsKt.assertFalse(Unknown Source)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertFalse$default(Assertions.kt:56)
+	at kotlin.test.AssertionsKt.assertFalse$default(Unknown Source)
+	at com.clientledger.core.repository.summary.SummaryClientIndexRepositoryTest.findPageReturnsExactly50Clients(SummaryClientIndexRepositoryTest.kt:405)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+	findPageReturnsSingleClient()
+
+	org.opentest4j.AssertionFailedError: expected: <1> but was: <10>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+	at kotlin.test.junit5.JUnit5Asserter.assertEquals(JUnitSupport.kt:32)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals(Assertions.kt:63)
+	at kotlin.test.AssertionsKt.assertEquals(Unknown Source)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals$default(Assertions.kt:62)
+	at kotlin.test.AssertionsKt.assertEquals$default(Unknown Source)
+	at com.clientledger.core.repository.summary.SummaryClientIndexRepositoryTest.findPageReturnsSingleClient(SummaryClientIndexRepositoryTest.kt:381)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+	allocateFirstClientUsesBucket000()
+	org.opentest4j.AssertionFailedError: expected: java.lang.Integer@64c79b69<100> but was: java.lang.Long@a94c8e3<100>
 	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
 	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
 	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
 	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
 	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
 	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
-	at com.clientledger.core.repository.summary.SummaryClientIndexBucketRepositoryTest.allocateClient301UsesBucket001(SummaryClientIndexBucketRepositoryTest.kt:98)
+	at com.clientledger.core.repository.summary.SummaryClientIndexBucketRepositoryTest.allocateFirstClientUsesBucket000(SummaryClientIndexBucketRepositoryTest.kt:75)
 	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 
-planBucketAllocationInTransactionPlansNewBucketWhenAllAreFull()
+	bucketUsesFlatYearMonthStructure()
 
-org.opentest4j.AssertionFailedError: expected: <bucket_001> but was: <bucket_003>
+	org.opentest4j.AssertionFailedError: expected: java.lang.Integer@64c79b69<100> but was: java.lang.Long@a94c8e3<100>
 	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
 	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
 	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
 	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
 	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:177)
 	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1145)
-	at com.clientledger.core.repository.summary.SummaryClientIndexBucketRepositoryTest.planBucketAllocationInTransactionPlansNewBucketWhenAllAreFull(SummaryClientIndexBucketRepositoryTest.kt:362)
+	at com.clientledger.core.repository.summary.SummaryClientIndexBucketRepositoryTest.bucketUsesFlatYearMonthStructure(SummaryClientIndexBucketRepositoryTest.kt:280)
 	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
 
+	getAdvanceClientsReturnsPaginatedClients()
+	org.opentest4j.AssertionFailedError: expected: <2> but was: <0>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:145)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:531)
+	at com.clientledger.core.integration.summary.SummaryIntegrationTest.getAdvanceClientsReturnsPaginatedClients(SummaryIntegrationTest.kt:442)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+	getReceivableClientsReturnsPaginatedClients()
+
+	org.opentest4j.AssertionFailedError: expected: <2> but was: <0>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:145)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:531)
+	at com.clientledger.core.integration.summary.SummaryIntegrationTest.getReceivableClientsReturnsPaginatedClients(SummaryIntegrationTest.kt:353)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	
 
- package com.clientledger.core.repository.summary
 
-import com.clientledger.core.config.ClientLedgerProperties
-import com.google.cloud.NoCredentials
-import com.google.cloud.firestore.Firestore
-import com.google.cloud.firestore.FirestoreOptions
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.test.context.ActiveProfiles
 
-@SpringBootTest
-@ActiveProfiles("test")
-class SummaryClientIndexBucketRepositoryTest {
-
-    @Autowired
-    private lateinit var properties: ClientLedgerProperties
-
-    companion object {
-
-        private lateinit var firestore: Firestore
-
-        @JvmStatic
-        @BeforeAll
-        fun setup() {
-            firestore = FirestoreOptions.newBuilder()
-                .setProjectId("client-ledger-dashboard")
-                .setHost("127.0.0.1:8080")
-                .setEmulatorHost("127.0.0.1:8080")
-                .setCredentials(NoCredentials.getInstance())
-                .build()
-                .service
-        }
-
-        @JvmStatic
-        @AfterAll
-        fun cleanup() {
-            firestore.close()
-        }
-    }
-
-    private fun repository(): SummaryClientIndexBucketRepository {
-        return SummaryClientIndexBucketRepository(
-            firestore = firestore,
-            properties = properties
-        )
-    }
-
-    @Test
-    fun allocateFirstClientUsesBucket000() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09"
-        )
-
-        assertEquals("bucket_000", bucketId)
-
-        val bucket = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            bucketId = "bucket_000"
-        )
-
-        assertNotNull(bucket)
-        assertEquals(300, bucket!!["capacity"])
-        assertEquals(1, bucket["size"])
-    }
-
-    @Test
-    fun allocateClient301UsesBucket001() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        repeat(300) {
-            repository.allocateBucket(
-                ownerId = ownerId,
-                yearMonth = "2026-09"
-            )
-        }
-
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09"
-        )
-
-        assertEquals("bucket_001", bucketId)
-
-        val bucket000 = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            bucketId = "bucket_000"
-        )
-
-        val bucket001 = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            bucketId = "bucket_001"
-        )
-
-        assertNotNull(bucket000)
-        assertNotNull(bucket001)
-
-        assertEquals(300, bucket000!!["size"])
-        assertEquals(1, bucket001!!["size"])
-    }
-
-    @Test
-    fun differentStatusUsesSameBucket() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val receivableBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09"
-        )
-
-        val advanceBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09"
-        )
-
-        assertEquals("bucket_000", receivableBucket)
-        assertEquals("bucket_000", advanceBucket)
-
-        val bucket = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            bucketId = "bucket_000"
-        )
-
-        assertNotNull(bucket)
-
-        assertEquals(2, bucket!!["size"])
-    }
-
-    @Test
-    fun differentOwnerUsesSeparateBuckets() {
-
-        val repository = repository()
-
-        val owner1 = "owner-1-${System.nanoTime()}"
-        val owner2 = "owner-2-${System.nanoTime()}"
-
-        val firstOwnerBucket = repository.allocateBucket(
-            ownerId = owner1,
-            yearMonth = "2026-09"
-        )
-
-        val secondOwnerBucket = repository.allocateBucket(
-            ownerId = owner2,
-            yearMonth = "2026-09"
-        )
-
-        assertEquals("bucket_000", firstOwnerBucket)
-        assertEquals("bucket_000", secondOwnerBucket)
-
-        val firstOwner = repository.find(
-            ownerId = owner1,
-            yearMonth = "2026-09",
-            bucketId = "bucket_000"
-        )
-
-        val secondOwner = repository.find(
-            ownerId = owner2,
-            yearMonth = "2026-09",
-            bucketId = "bucket_000"
-        )
-
-        assertNotNull(firstOwner)
-        assertNotNull(secondOwner)
-
-        assertEquals(1, firstOwner!!["size"])
-        assertEquals(1, secondOwner!!["size"])
-    }
-
-    @Test
-    fun differentMonthUsesSeparateBuckets() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val septemberBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09"
-        )
-
-        val octoberBucket = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-10"
-        )
-
-        assertEquals("bucket_000", septemberBucket)
-        assertEquals("bucket_000", octoberBucket)
-
-        val september = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            bucketId = "bucket_000"
-        )
-
-        val october = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-10",
-            bucketId = "bucket_000"
-        )
-
-        assertNotNull(september)
-        assertNotNull(october)
-
-        assertEquals(1, september!!["size"])
-        assertEquals(1, october!!["size"])
-    }
-
-    @Test
-    fun findReturnsNullWhenBucketDoesNotExist() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        val bucket = repository.find(
-            ownerId = ownerId,
-            yearMonth = "2026-09",
-            bucketId = "bucket_000"
-        )
-
-        assertEquals(null, bucket)
-    }
-
-    @Test
-    fun bucketUsesFlatYearMonthStructure() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-
-        repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = "2026-09"
-        )
-
-        val snapshot = firestore
-            .collection("owners")
-            .document(ownerId)
-            .collection("summary_client_index")
-            .document("2026-09")
-            .collection("buckets")
-            .document("bucket_000")
-            .get()
-            .get()
-
-        assertTrue(snapshot.exists())
-        assertEquals(100, snapshot.getLong("capacity"))
-        assertEquals(1, snapshot.getLong("size"))
-    }
-
-    @Test
-    fun planBucketAllocationInTransactionFindsAvailableBucket() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = yearMonth
-        )
-
-        val plan = firestore.runTransaction { transaction ->
-
-            repository.planBucketAllocationInTransaction(
-                transaction = transaction,
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-        }.get()
-
-        assertEquals(bucketId, plan.bucketId)
-        assertEquals(1, plan.currentSize)
-        assertEquals(false, plan.isNewBucket)
-    }
-
-    @Test
-    fun applyBucketAllocationInTransactionIncreasesBucketSize() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        val bucketId = repository.allocateBucket(
-            ownerId = ownerId,
-            yearMonth = yearMonth
-        )
-
-        firestore.runTransaction { transaction ->
-
-            val plan = repository.planBucketAllocationInTransaction(
-                transaction = transaction,
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-
-            repository.applyBucketAllocationInTransaction(
-                transaction = transaction,
-                plan = plan
-            )
-
-            null
-        }.get()
-
-        val bucket = repository.find(
-            ownerId = ownerId,
-            yearMonth = yearMonth,
-            bucketId = bucketId
-        )
-
-        assertNotNull(bucket)
-        assertEquals(2, bucket!!["size"])
-    }
-
-    @Test
-    fun planBucketAllocationInTransactionPlansNewBucketWhenAllAreFull() {
-
-        val repository = repository()
-
-        val ownerId = "owner-${System.nanoTime()}"
-        val yearMonth = "2026-09"
-
-        repeat(300) {
-            repository.allocateBucket(
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-        }
-
-        val plan = firestore.runTransaction { transaction ->
-
-            repository.planBucketAllocationInTransaction(
-                transaction = transaction,
-                ownerId = ownerId,
-                yearMonth = yearMonth
-            )
-        }.get()
-
-        assertEquals("bucket_001", plan.bucketId)
-        assertEquals(0, plan.currentSize)
-        assertEquals(true, plan.isNewBucket)
-    }
-}
 
 package com.clientledger.core.integration.summary
 
@@ -792,7 +499,6 @@ class SummaryIntegrationTest {
         insertBucket(
             ownerId = ownerId,
             yearMonth = "2026-09",
-            status = ClientType.RECEIVABLE,
             bucketId = "bucket_000",
             size = 2
         )
@@ -882,7 +588,6 @@ class SummaryIntegrationTest {
         insertBucket(
             ownerId = ownerId,
             yearMonth = "2026-09",
-            status = ClientType.ADVANCE,
             bucketId = "bucket_000",
             size = 2
         )
@@ -996,23 +701,19 @@ class SummaryIntegrationTest {
     private fun insertBucket(
         ownerId: String,
         yearMonth: String,
-        status: ClientType,
         bucketId: String,
         size: Int
     ) {
-
         firestore
             .collection("owners")
             .document(ownerId)
             .collection("summary_client_index")
             .document(yearMonth)
-            .collection("status")
-            .document(status.name.lowercase())
             .collection("buckets")
             .document(bucketId)
             .set(
                 mapOf(
-                    "capacity" to 300,
+                    "capacity" to properties.summary.indexBucketCapacity,
                     "size" to size
                 )
             )
