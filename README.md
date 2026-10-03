@@ -1,444 +1,2698 @@
-package com.clientledger.core.controller.client
-
-import com.clientledger.core.auth.CurrentOwnerResolver
-import com.clientledger.core.domain.Client
-import com.clientledger.core.pagination.PageResult
-import com.clientledger.core.service.client.ClientService
-import org.springframework.http.ResponseEntity
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
-import java.net.URI
-
-@RestController
-@RequestMapping("/api/clients")
-class ClientController(
-    private val clientService: ClientService,
-    private val currentOwnerResolver: CurrentOwnerResolver
-) {
-
-    @PostMapping
-    fun createClient(
-        @RequestBody client: Client
-    ): ResponseEntity<Client> {
-
-        val ownerId =
-            currentOwnerResolver.getOwnerId()
-
-        val clientWithOwner =
-            client.copy(
-                ownerId = ownerId
-            )
-
-        val createdClient =
-            clientService.create(
-                clientWithOwner
-            )
-
-        return ResponseEntity
-            .created(
-                URI.create("/api/clients/${createdClient.id}")
-            )
-            .body(createdClient)
-    }
-
-    @GetMapping("/{clientId}")
-    fun getClient(
-        @PathVariable clientId: String
-    ): ResponseEntity<Client> {
-
-        val ownerId =
-            currentOwnerResolver.getOwnerId()
-
-        val client =
-            clientService.findById(
-                ownerId = ownerId,
-                clientId = clientId
-            )
-                ?: return ResponseEntity
-                    .notFound()
-                    .build()
-
-        return ResponseEntity.ok(client)
-    }
-
-    @GetMapping
-    fun getClients(
-        @RequestParam(defaultValue = "50") size: Int,
-        @RequestParam(required = false) cursor: String?
-    ): ResponseEntity<PageResult<Client>> {
-
-        val ownerId =
-            currentOwnerResolver.getOwnerId()
-
-        val result =
-            clientService.findPage(
-                ownerId = ownerId,
-                size = size,
-                cursor = cursor
-            )
-
-        return ResponseEntity.ok(result)
-    }
-}
-
-package com.clientledger.core.service.client
+package com.clientledger.core.service.order
 
 import com.clientledger.core.config.ClientLedgerProperties
-import com.clientledger.core.domain.*
-import com.clientledger.core.pagination.PageResult
+import com.clientledger.core.domain.Client
+import com.clientledger.core.domain.ClientType
+import com.clientledger.core.domain.Order
+import com.clientledger.core.domain.OrderItem
+import com.clientledger.core.domain.OrderStatus
+import com.clientledger.core.domain.OrderUnit
 import com.clientledger.core.repository.client.ClientRepository
 import com.clientledger.core.repository.history.ClientHistoryBucketRepository
 import com.clientledger.core.repository.history.ClientHistoryRepository
 import com.clientledger.core.repository.lock.OwnerOperationLockRepository
+import com.clientledger.core.repository.maintenance.MaintenanceRepository
+import com.clientledger.core.repository.order.OrderRepository
 import com.clientledger.core.repository.summary.GlobalSummaryRepository
 import com.clientledger.core.repository.summary.SummaryClientIndexBucketRepository
 import com.clientledger.core.repository.summary.SummaryClientIndexRepository
+import com.clientledger.core.service.client.ClientEditWindowService
+import com.clientledger.core.service.client.ClientService
 import com.clientledger.core.service.lock.OwnerOperationLockService
 import com.clientledger.core.transaction.FirestoreTransactionExecutor
-import com.clientledger.core.utils.IdGenerator
+import com.google.cloud.NoCredentials
 import com.google.cloud.firestore.Firestore
-import com.google.cloud.firestore.Transaction
-import org.springframework.stereotype.Service
+import com.google.cloud.firestore.FirestoreOptions
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.context.ActiveProfiles
 import java.time.Clock
-import java.time.YearMonth
-import kotlin.math.abs
+import java.time.Instant
+import java.time.ZoneId
 
-@Service
-class ClientService(
-    private val firestore: Firestore,
-    private val transactionExecutor: FirestoreTransactionExecutor,
-    private val clientRepository: ClientRepository,
-    private val historyBucketRepository: ClientHistoryBucketRepository,
-    private val historyRepository: ClientHistoryRepository,
-    private val globalSummaryRepository: GlobalSummaryRepository,
-    private val summaryIndexBucketRepository: SummaryClientIndexBucketRepository,
-    private val summaryIndexRepository: SummaryClientIndexRepository,
-    private val properties: ClientLedgerProperties,
-    private val clock: Clock,
-    private val ownerOperationLockService: OwnerOperationLockService,
-    private val ownerOperationLockRepository: OwnerOperationLockRepository,
-) {
+@SpringBootTest
+@ActiveProfiles("test")
+class OrderServiceTest {
 
-    fun create(client: Client): Client {
+    @Autowired
+    private lateinit var properties: ClientLedgerProperties
 
-        require(client.ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
+    @Autowired
+    private lateinit var ownerOperationLockService: OwnerOperationLockService
 
-        require(client.name.isNotBlank()) {
-            "client name must not be blank"
-        }
+    companion object {
 
-        require(client.phone.isNotBlank()) {
-            "client phone must not be blank"
-        }
+        private lateinit var firestore: Firestore
 
-        val clientId = if (client.id.isBlank()) {
-            IdGenerator.generateClientId()
-        } else {
-            client.id
-        }
-
-        val currentYearMonth = YearMonth.now(clock)
-
-        val clientWithId = client.copy(
-            id = clientId,
-            latestAmount = client.initialOpeningBalance
+        private val testClock = Clock.fixed(
+            Instant.parse("2026-09-24T10:00:00Z"),
+            ZoneId.of("UTC")
         )
 
-        return ownerOperationLockService.executeBusiness(
-            ownerId = clientWithId.ownerId,
-        ) { context, fence ->
+        @JvmStatic
+        @BeforeAll
+        fun setup() {
 
-            transactionExecutor.execute(context) { transaction, operationContext ->
+            firestore =
+                FirestoreOptions.newBuilder()
+                    .setProjectId("client-ledger-dashboard")
+                    .setHost("127.0.0.1:8080")
+                    .setEmulatorHost("127.0.0.1:8080")
+                    .setCredentials(NoCredentials.getInstance())
+                    .build()
+                    .service
+        }
 
-                require(
-                    ownerOperationLockRepository.isFenceValidInTransaction(
-                        transaction = transaction,
-                        ownerId = clientWithId.ownerId,
-                        expectedFence = fence
-                    )
-                ) {
-                    "Owner operation lock fence changed: ${clientWithId.ownerId}"
-                }
+        @JvmStatic
+        @AfterAll
+        fun cleanup() {
 
-                operationContext.checkDeadline()
-
-                require(
-                    !clientRepository.existsInTransaction(
-                        transaction = transaction,
-                        ownerId = clientWithId.ownerId,
-                        clientId = clientId
-                    )
-                ) {
-                    "Client already exists: $clientId"
-                }
-
-                val materializedMonths =
-                    materializedMonths(currentYearMonth)
-
-                val summaryStatus =
-                    statusFromOpeningBalance(
-                        clientWithId.initialOpeningBalance
-                    )
-
-                /*
-             * READ / PLAN PHASE
-             *
-             * All transaction reads happen before any writes.
-             */
-
-                val historyBucketPlan =
-                    historyBucketRepository.planBucketAllocationInTransaction(
-                        transaction = transaction,
-                        ownerId = clientWithId.ownerId,
-                        yearMonth = currentYearMonth.toString()
-                    )
-
-                val globalSummaryPlans =
-                    materializedMonths.map { yearMonth ->
-
-                        globalSummaryRepository.planDeltaInTransaction(
-                            transaction = transaction,
-                            ownerId = clientWithId.ownerId,
-                            yearMonth = yearMonth.toString(),
-                            delta = globalSummaryDelta(
-                                client = clientWithId,
-                                yearMonth = yearMonth.toString()
-                            )
-                        )
-                    }
-
-                /*
-             * Summary index bucket planning is done for every
-             * materialized month.
-             */
-                val summaryIndexPlans =
-                    materializedMonths.map { yearMonth ->
-
-                        summaryIndexBucketRepository
-                            .planBucketAllocationInTransaction(
-                                transaction = transaction,
-                                ownerId = clientWithId.ownerId,
-                                yearMonth = yearMonth.toString()
-                            )
-                    }
-
-                /*
-             * WRITE / APPLY PHASE
-             */
-
-                historyBucketRepository.applyBucketAllocationInTransaction(
-                    transaction = transaction,
-                    plan = historyBucketPlan
-                )
-
-                createMonthlyHistories(
-                    transaction = transaction,
-                    client = clientWithId,
-                    materializedMonths = materializedMonths,
-                    bucketId = historyBucketPlan.bucketId
-                )
-
-                globalSummaryPlans.forEach { plan ->
-
-                    globalSummaryRepository.applyDeltaPlanInTransaction(
-                        transaction = transaction,
-                        plan = plan
-                    )
-                }
-
-                summaryIndexPlans.forEachIndexed { index, plan ->
-
-                    val yearMonth = materializedMonths[index]
-
-                    summaryIndexBucketRepository
-                        .applyBucketAllocationInTransaction(
-                            transaction = transaction,
-                            plan = plan
-                        )
-
-                    summaryIndexRepository.insertInTransaction(
-                        transaction = transaction,
-                        ownerId = clientWithId.ownerId,
-                        yearMonth = yearMonth.toString(),
-                        bucketId = plan.bucketId,
-                        index = SummaryClientIndex(
-                            clientId = clientWithId.id,
-                            amount = abs(
-                                clientWithId.initialOpeningBalance
-                            ),
-                            status = summaryStatus
-                        )
-                    )
-                }
-
-                val finalClient =
-                    clientWithId.copy(
-                        bucketId = historyBucketPlan.bucketId,
-                        type = summaryStatus
-                    )
-
-                operationContext.checkDeadline()
-
-                clientRepository.createInTransaction(
-                    transaction = transaction,
-                    client = finalClient
-                )
+            if (::firestore.isInitialized) {
+                firestore.close()
             }
         }
     }
 
-    private fun materializedMonths(
-        currentMonth: YearMonth
-    ): List<YearMonth> {
+    @Test
+    fun createOrderPersistsCalculatedFinancialValues() {
 
-        val editableMonths =
-            properties.history.editableMonths
+        val clientService =
+            createClientService()
 
-        require(editableMonths > 0) {
-            "history.editable-months must be greater than zero"
-        }
+        val ownerId =
+            "owner-${System.nanoTime()}"
 
-        return (editableMonths - 1 downTo 0)
-            .map { offset ->
-                currentMonth.minusMonths(offset.toLong())
-            }
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Order Client",
+                    phone = "9000000001",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val order =
+            Order(
+                ownerId = ownerId,
+                clientId = client.id,
+                orderDate = "2026-08-20",
+                items = listOf(
+                    OrderItem(
+                        name = "Product A",
+                        quantity = 1,
+                        unit = OrderUnit.SINGLE,
+                        amount = 5000,
+                        gstRate = 18,
+                        gstAmount = 900,
+                        expense = 3000
+                    )
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val createdOrder =
+            orderService.create(order)
+
+        assertNotNull(createdOrder.id)
+
+        assertEquals(
+            true,
+            createdOrder.id.startsWith("ORD-")
+        )
+
+        assertEquals(
+            5000,
+            createdOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            createdOrder.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            900,
+            createdOrder.totalGstAmount
+        )
+
+        assertEquals(
+            3000,
+            createdOrder.totalExpense
+        )
+
+        assertEquals(
+            2000,
+            createdOrder.profitAmount
+        )
+
+        assertEquals(
+            OrderStatus.CREATED,
+            createdOrder.status
+        )
+
+        val orderRepository =
+            OrderRepository(firestore)
+
+        val storedOrder =
+            orderRepository.findById(
+                ownerId = ownerId,
+                orderDate = "2026-08-20",
+                orderId = createdOrder.id
+            )
+
+        assertNotNull(storedOrder)
+
+        assertEquals(
+            createdOrder.id,
+            storedOrder!!.id
+        )
+
+        assertEquals(
+            ownerId,
+            storedOrder.ownerId
+        )
+
+        assertEquals(
+            client.id,
+            storedOrder.clientId
+        )
+
+        assertEquals(
+            "2026-08-20",
+            storedOrder.orderDate
+        )
+
+        assertEquals(
+            5000,
+            storedOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            storedOrder.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            900,
+            storedOrder.totalGstAmount
+        )
+
+        assertEquals(
+            3000,
+            storedOrder.totalExpense
+        )
+
+        assertEquals(
+            2000,
+            storedOrder.profitAmount
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val augustHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-08",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(augustHistory)
+
+        assertEquals(
+            5000,
+            augustHistory!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            augustHistory.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            augustHistory.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            augustHistory.invoiceCount
+        )
+
+        assertEquals(
+            900,
+            augustHistory.totalGstAmount
+        )
+
+        assertEquals(
+            3000,
+            augustHistory.totalExpenses
+        )
+
+        assertEquals(
+            10900,
+            augustHistory.closingBalance
+        )
+
+        assertEquals(
+            10900,
+            augustHistory.receivable
+        )
+
+        assertEquals(
+            0,
+            augustHistory.advance
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            augustHistory.status
+        )
+
+        val septemberHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-09",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(septemberHistory)
+
+        assertEquals(
+            10900,
+            septemberHistory!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.invoiceCount
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalGstAmount
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalExpenses
+        )
+
+        assertEquals(
+            10900,
+            septemberHistory.closingBalance
+        )
+
+        assertEquals(
+            10900,
+            septemberHistory.receivable
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.advance
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            septemberHistory.status
+        )
     }
 
-    private fun createMonthlyHistories(
-        transaction: Transaction,
-        client: Client,
-        materializedMonths: List<YearMonth>,
-        bucketId: String
-    ) {
+    @Test
+    fun createOrderUpdatesSummaryClientIndexUsingClientBucket() {
 
-        materializedMonths.forEach { yearMonth ->
+        val clientService =
+            createClientService()
 
-            historyRepository.saveInTransaction(
-                transaction = transaction,
-                history = ClientMonthlyHistory(
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Summary Index Client",
+                    phone = "9000000002",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val order =
+            Order(
+                ownerId = ownerId,
+                clientId = client.id,
+                orderDate = "2026-08-20",
+                items = listOf(
+                    OrderItem(
+                        name = "Product A",
+                        quantity = 1,
+                        unit = OrderUnit.SINGLE,
+                        amount = 5000,
+                        gstRate = 18,
+                        gstAmount = 900,
+                        expense = 3000
+                    )
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        orderService.create(order)
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val augustIndex =
+            summaryIndexRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-08",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(augustIndex)
+
+        assertEquals(
+            client.id,
+            augustIndex!!.clientId
+        )
+
+        assertEquals(
+            10900,
+            augustIndex.amount
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            augustIndex.status
+        )
+
+        val septemberIndex =
+            summaryIndexRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-09",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(septemberIndex)
+
+        assertEquals(
+            10900,
+            septemberIndex!!.amount
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            septemberIndex.status
+        )
+    }
+
+    @Test
+    fun updateOrderChangesLedgerForNormalEdit() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Normal Edit Client",
+                    phone = "9000000003",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
                     clientId = client.id,
-                    ownerId = client.ownerId,
-                    yearMonth = yearMonth.toString(),
-                    openingBalance =
-                    client.initialOpeningBalance,
-                    closingBalance =
-                    client.initialOpeningBalance,
-                    receivable =
-                    if (client.initialOpeningBalance > 0) {
-                        client.initialOpeningBalance
-                    } else {
-                        0
-                    },
-                    advance =
-                    if (client.initialOpeningBalance < 0) {
-                        abs(client.initialOpeningBalance)
-                    } else {
-                        0
-                    },
-                    status =
-                    statusFromOpeningBalance(
-                        client.initialOpeningBalance
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            unit = OrderUnit.SINGLE,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
                     )
-                ),
-                bucketId = bucketId
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            unit = OrderUnit.SINGLE,
+                            amount = 7000,
+                            gstRate = 18,
+                            gstAmount = 1260,
+                            expense = 4000
+                        )
+                    )
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            client.id,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            "2026-08-20",
+            updatedOrder.orderDate
+        )
+
+        assertEquals(
+            7000,
+            updatedOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            8260,
+            updatedOrder.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1260,
+            updatedOrder.totalGstAmount
+        )
+
+        assertEquals(
+            4000,
+            updatedOrder.totalExpense
+        )
+
+        assertEquals(
+            3000,
+            updatedOrder.profitAmount
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val augustHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-08",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(augustHistory)
+
+        assertEquals(
+            5000,
+            augustHistory!!.openingBalance
+        )
+
+        assertEquals(
+            7000,
+            augustHistory.totalInvoiceAmount
+        )
+
+        assertEquals(
+            8260,
+            augustHistory.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            augustHistory.invoiceCount
+        )
+
+        assertEquals(
+            1260,
+            augustHistory.totalGstAmount
+        )
+
+        assertEquals(
+            4000,
+            augustHistory.totalExpenses
+        )
+
+        assertEquals(
+            13260,
+            augustHistory.closingBalance
+        )
+
+        assertEquals(
+            13260,
+            augustHistory.receivable
+        )
+
+        assertEquals(
+            0,
+            augustHistory.advance
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            augustHistory.status
+        )
+
+        val septemberHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-09",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(septemberHistory)
+
+        assertEquals(
+            13260,
+            septemberHistory!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.invoiceCount
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalGstAmount
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.totalExpenses
+        )
+
+        assertEquals(
+            13260,
+            septemberHistory.closingBalance
+        )
+
+        assertEquals(
+            13260,
+            septemberHistory.receivable
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.advance
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            septemberHistory.status
+        )
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val augustIndex =
+            summaryIndexRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-08",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(augustIndex)
+
+        assertEquals(
+            13260,
+            augustIndex!!.amount
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            augustIndex.status
+        )
+
+        val septemberIndex =
+            summaryIndexRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-09",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(septemberIndex)
+
+        assertEquals(
+            13260,
+            septemberIndex!!.amount
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            septemberIndex.status
+        )
+    }
+
+    @Test
+    fun updateOrderMovesOrderFromPastMonthToLaterMonth() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Date Change Forward Client",
+                    phone = "9000000004",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            unit = OrderUnit.SINGLE,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-09-10"
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            client.id,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            "2026-09-10",
+            updatedOrder.orderDate
+        )
+
+        assertEquals(
+            5000,
+            updatedOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            updatedOrder.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            900,
+            updatedOrder.totalGstAmount
+        )
+
+        assertEquals(
+            3000,
+            updatedOrder.totalExpense
+        )
+
+        assertEquals(
+            2000,
+            updatedOrder.profitAmount
+        )
+
+        val orderRepository =
+            OrderRepository(firestore)
+
+        val oldOrder =
+            orderRepository.findById(
+                ownerId = ownerId,
+                orderDate = "2026-08-20",
+                orderId = originalOrder.id
+            )
+
+        assertEquals(
+            null,
+            oldOrder
+        )
+
+        val newOrder =
+            orderRepository.findById(
+                ownerId = ownerId,
+                orderDate = "2026-09-10",
+                orderId = originalOrder.id
+            )
+
+        assertNotNull(newOrder)
+
+        assertEquals(
+            originalOrder.id,
+            newOrder!!.id
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val augustHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-08",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(augustHistory)
+
+        assertEquals(
+            5000,
+            augustHistory!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            augustHistory.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            augustHistory.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            augustHistory.invoiceCount
+        )
+
+        assertEquals(
+            0,
+            augustHistory.totalGstAmount
+        )
+
+        assertEquals(
+            0,
+            augustHistory.totalExpenses
+        )
+
+        assertEquals(
+            5000,
+            augustHistory.closingBalance
+        )
+
+        assertEquals(
+            5000,
+            augustHistory.receivable
+        )
+
+        assertEquals(
+            0,
+            augustHistory.advance
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            augustHistory.status
+        )
+
+        val septemberHistory =
+            historyRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-09",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(septemberHistory)
+
+        assertEquals(
+            5000,
+            septemberHistory!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            septemberHistory.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            septemberHistory.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            septemberHistory.invoiceCount
+        )
+
+        assertEquals(
+            900,
+            septemberHistory.totalGstAmount
+        )
+
+        assertEquals(
+            3000,
+            septemberHistory.totalExpenses
+        )
+
+        assertEquals(
+            10900,
+            septemberHistory.closingBalance
+        )
+
+        assertEquals(
+            10900,
+            septemberHistory.receivable
+        )
+
+        assertEquals(
+            0,
+            septemberHistory.advance
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            septemberHistory.status
+        )
+
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val augustIndex =
+            summaryIndexRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-08",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(augustIndex)
+
+        assertEquals(
+            5000,
+            augustIndex!!.amount
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            augustIndex.status
+        )
+
+        val septemberIndex =
+            summaryIndexRepository.find(
+                ownerId = ownerId,
+                yearMonth = "2026-09",
+                bucketId = client.bucketId,
+                clientId = client.id
+            )
+
+        assertNotNull(septemberIndex)
+
+        assertEquals(
+            10900,
+            septemberIndex!!.amount
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            septemberIndex.status
+        )
+    }
+
+    @Test
+    fun updateOrderMovesOrderFromLaterMonthToPastMonth() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Date Backward Client",
+                    phone = "9000000011",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-09-10",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-08-20"
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            client.id,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            "2026-08-20",
+            updatedOrder.orderDate
+        )
+
+        assertEquals(
+            5000,
+            updatedOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            updatedOrder.totalInvoiceAmountWithGst
+        )
+
+        val orderRepository =
+            OrderRepository(firestore)
+
+        assertEquals(
+            null,
+            orderRepository.findById(
+                ownerId,
+                "2026-09-10",
+                originalOrder.id
+            )
+        )
+
+        val storedOrder =
+            orderRepository.findById(
+                ownerId,
+                "2026-08-20",
+                originalOrder.id
+            )
+
+        assertNotNull(storedOrder)
+
+        assertEquals(
+            originalOrder.id,
+            storedOrder!!.id
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val august =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                client.bucketId,
+                client.id
+            )
+
+        val september =
+            historyRepository.find(
+                ownerId,
+                "2026-09",
+                client.bucketId,
+                client.id
+            )
+
+        assertNotNull(august)
+        assertNotNull(september)
+
+        assertEquals(
+            5000,
+            august!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            august.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            august.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            august.invoiceCount
+        )
+
+        assertEquals(
+            10900,
+            august.closingBalance
+        )
+
+        assertEquals(
+            10900,
+            september!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            september.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            september.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            september.invoiceCount
+        )
+
+        assertEquals(
+            10900,
+            september.closingBalance
+        )
+    }
+
+    @Test
+    fun updateOrderChangesDateWithinSameMonth() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Same Month Client",
+                    phone = "9000000012",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-08-05",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-08-25"
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            "2026-08-25",
+            updatedOrder.orderDate
+        )
+
+        val orderRepository =
+            OrderRepository(firestore)
+
+        val storedOrder =
+            orderRepository.findById(
+                ownerId = ownerId,
+                orderDate = "2026-08-25",
+                orderId = originalOrder.id
+            )
+
+        assertNotNull(storedOrder)
+
+        assertEquals(
+            originalOrder.id,
+            storedOrder!!.id
+        )
+
+        assertEquals(
+            "2026-08-25",
+            storedOrder.orderDate
+        )
+
+        assertEquals(
+            client.id,
+            storedOrder.clientId
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val august =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                client.bucketId,
+                client.id
+            )
+
+        assertNotNull(august)
+
+        assertEquals(
+            5000,
+            august!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            august.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            august.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            august.invoiceCount
+        )
+
+        assertEquals(
+            10900,
+            august.closingBalance
+        )
+    }
+
+    @Test
+    fun updateOrderChangesDateAndFinancialValuesForSameClient() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Date Financial Client",
+                    phone = "9000000013",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-09-10",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 7000,
+                            gstRate = 18,
+                            gstAmount = 1260,
+                            expense = 4000
+                        )
+                    )
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            client.id,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            "2026-09-10",
+            updatedOrder.orderDate
+        )
+
+        assertEquals(
+            7000,
+            updatedOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            8260,
+            updatedOrder.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1260,
+            updatedOrder.totalGstAmount
+        )
+
+        assertEquals(
+            4000,
+            updatedOrder.totalExpense
+        )
+
+        assertEquals(
+            3000,
+            updatedOrder.profitAmount
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val august =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                client.bucketId,
+                client.id
+            )
+
+        val september =
+            historyRepository.find(
+                ownerId,
+                "2026-09",
+                client.bucketId,
+                client.id
+            )
+
+        assertNotNull(august)
+        assertNotNull(september)
+
+        assertEquals(
+            5000,
+            august!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            august.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            august.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            august.invoiceCount
+        )
+
+        assertEquals(
+            5000,
+            august.closingBalance
+        )
+
+        assertEquals(
+            5000,
+            september!!.openingBalance
+        )
+
+        assertEquals(
+            7000,
+            september.totalInvoiceAmount
+        )
+
+        assertEquals(
+            8260,
+            september.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            september.invoiceCount
+        )
+
+        assertEquals(
+            13260,
+            september.closingBalance
+        )
+    }
+
+    @Test
+    fun updateOrderChangesClientForSameDate() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val oldClient =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Old Client",
+                    phone = "9000000014",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val newClient =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "New Client",
+                    phone = "9000000015",
+                    initialOpeningBalance = 2000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = oldClient.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    clientId = newClient.id
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            newClient.id,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            "2026-08-20",
+            updatedOrder.orderDate
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val oldAugust =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                oldClient.bucketId,
+                oldClient.id
+            )
+
+        val newAugust =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                newClient.bucketId,
+                newClient.id
+            )
+
+        assertNotNull(oldAugust)
+        assertNotNull(newAugust)
+
+        assertEquals(
+            5000,
+            oldAugust!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            oldAugust.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            oldAugust.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            oldAugust.invoiceCount
+        )
+
+        assertEquals(
+            5000,
+            oldAugust.closingBalance
+        )
+
+        assertEquals(
+            2000,
+            newAugust!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            newAugust.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            newAugust.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            newAugust.invoiceCount
+        )
+
+        assertEquals(
+            7900,
+            newAugust.closingBalance
+        )
+
+        val orderRepository =
+            OrderRepository(firestore)
+
+        val storedOrder =
+            orderRepository.findById(
+                ownerId,
+                "2026-08-20",
+                originalOrder.id
+            )
+
+        assertNotNull(storedOrder)
+
+        assertEquals(
+            originalOrder.id,
+            storedOrder!!.id
+        )
+
+        assertEquals(
+            newClient.id,
+            storedOrder.clientId
+        )
+    }
+
+    @Test
+    fun updateOrderChangesClientAndFinancialValuesForSameDate() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val oldClient =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Old Financial Client",
+                    phone = "9000000016",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val newClient =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "New Financial Client",
+                    phone = "9000000017",
+                    initialOpeningBalance = 2000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = oldClient.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    clientId = newClient.id,
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 7000,
+                            gstRate = 18,
+                            gstAmount = 1260,
+                            expense = 4000
+                        )
+                    )
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            newClient.id,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            7000,
+            updatedOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            8260,
+            updatedOrder.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1260,
+            updatedOrder.totalGstAmount
+        )
+
+        assertEquals(
+            4000,
+            updatedOrder.totalExpense
+        )
+
+        assertEquals(
+            3000,
+            updatedOrder.profitAmount
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val oldAugust =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                oldClient.bucketId,
+                oldClient.id
+            )
+
+        val newAugust =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                newClient.bucketId,
+                newClient.id
+            )
+
+        assertNotNull(oldAugust)
+        assertNotNull(newAugust)
+
+        assertEquals(
+            5000,
+            oldAugust!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            oldAugust.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            oldAugust.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            oldAugust.invoiceCount
+        )
+
+        assertEquals(
+            5000,
+            oldAugust.closingBalance
+        )
+
+        assertEquals(
+            2000,
+            newAugust!!.openingBalance
+        )
+
+        assertEquals(
+            7000,
+            newAugust.totalInvoiceAmount
+        )
+
+        assertEquals(
+            8260,
+            newAugust.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            newAugust.invoiceCount
+        )
+
+        assertEquals(
+            10260,
+            newAugust.closingBalance
+        )
+    }
+
+    @Test
+    fun updateOrderChangesClientAndDate() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val oldClient =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Old Full Change Client",
+                    phone = "9000000018",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val newClient =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "New Full Change Client",
+                    phone = "9000000019",
+                    initialOpeningBalance = 2000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = oldClient.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    clientId = newClient.id,
+                    orderDate = "2026-09-10",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 7000,
+                            gstRate = 18,
+                            gstAmount = 1260,
+                            expense = 4000
+                        )
+                    )
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            newClient.id,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            "2026-09-10",
+            updatedOrder.orderDate
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val oldAugust =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                oldClient.bucketId,
+                oldClient.id
+            )
+
+        val oldSeptember =
+            historyRepository.find(
+                ownerId,
+                "2026-09",
+                oldClient.bucketId,
+                oldClient.id
+            )
+
+        val newSeptember =
+            historyRepository.find(
+                ownerId,
+                "2026-09",
+                newClient.bucketId,
+                newClient.id
+            )
+
+        assertNotNull(oldAugust)
+        assertNotNull(oldSeptember)
+        assertNotNull(newSeptember)
+
+        assertEquals(
+            5000,
+            oldAugust!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            oldAugust.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            oldAugust.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            oldAugust.invoiceCount
+        )
+
+        assertEquals(
+            5000,
+            oldAugust.closingBalance
+        )
+
+        assertEquals(
+            5000,
+            oldSeptember!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            oldSeptember.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            oldSeptember.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            oldSeptember.invoiceCount
+        )
+
+        assertEquals(
+            5000,
+            oldSeptember.closingBalance
+        )
+
+        assertEquals(
+            2000,
+            newSeptember!!.openingBalance
+        )
+
+        assertEquals(
+            7000,
+            newSeptember.totalInvoiceAmount
+        )
+
+        assertEquals(
+            8260,
+            newSeptember.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            newSeptember.invoiceCount
+        )
+
+        assertEquals(
+            10260,
+            newSeptember.closingBalance
+        )
+
+        val orderRepository =
+            OrderRepository(firestore)
+
+        assertEquals(
+            null,
+            orderRepository.findById(
+                ownerId,
+                "2026-08-20",
+                originalOrder.id
+            )
+        )
+
+        val storedOrder =
+            orderRepository.findById(
+                ownerId,
+                "2026-09-10",
+                originalOrder.id
+            )
+
+        assertNotNull(storedOrder)
+
+        assertEquals(
+            originalOrder.id,
+            storedOrder!!.id
+        )
+
+        assertEquals(
+            newClient.id,
+            storedOrder.clientId
+        )
+    }
+
+    @Test
+    fun updateOrderWithNoChangesDoesNotChangeLedgerValues() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "No Change Client",
+                    phone = "9000000020",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder = originalOrder
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            originalOrder.clientId,
+            updatedOrder.clientId
+        )
+
+        assertEquals(
+            originalOrder.orderDate,
+            updatedOrder.orderDate
+        )
+
+        assertEquals(
+            originalOrder.totalInvoiceAmount,
+            updatedOrder.totalInvoiceAmount
+        )
+
+        assertEquals(
+            originalOrder.totalInvoiceAmountWithGst,
+            updatedOrder.totalInvoiceAmountWithGst
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val august =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                client.bucketId,
+                client.id
+            )
+
+        assertNotNull(august)
+
+        assertEquals(
+            5000,
+            august!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            august.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            august.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            august.invoiceCount
+        )
+
+        assertEquals(
+            10900,
+            august.closingBalance
+        )
+
+        assertEquals(
+            ClientType.RECEIVABLE,
+            august.status
+        )
+    }
+
+    @Test
+    fun updateOrderFromCurrentMonthToPastMonthRecalculatesCurrentMonth() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Current To Past Client",
+                    phone = "9000000021",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-09-10",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-08-20"
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            "2026-08-20",
+            updatedOrder.orderDate
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val august =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                client.bucketId,
+                client.id
+            )
+
+        val september =
+            historyRepository.find(
+                ownerId,
+                "2026-09",
+                client.bucketId,
+                client.id
+            )
+
+        assertNotNull(august)
+        assertNotNull(september)
+
+        assertEquals(
+            5000,
+            august!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            august.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            august.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            august.invoiceCount
+        )
+
+        assertEquals(
+            10900,
+            august.closingBalance
+        )
+
+        assertEquals(
+            10900,
+            september!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            september.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            september.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            september.invoiceCount
+        )
+
+        assertEquals(
+            10900,
+            september.closingBalance
+        )
+    }
+
+    @Test
+    fun updateOrderIntoCurrentMonthRecalculatesThroughCurrentMonth() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Into Current Client",
+                    phone = "9000000022",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T07:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-09-10"
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            "2026-09-10",
+            updatedOrder.orderDate
+        )
+
+        val historyRepository =
+            ClientHistoryRepository(firestore)
+
+        val august =
+            historyRepository.find(
+                ownerId,
+                "2026-08",
+                client.bucketId,
+                client.id
+            )
+
+        val september =
+            historyRepository.find(
+                ownerId,
+                "2026-09",
+                client.bucketId,
+                client.id
+            )
+
+        assertNotNull(august)
+        assertNotNull(september)
+
+        assertEquals(
+            5000,
+            august!!.openingBalance
+        )
+
+        assertEquals(
+            0,
+            august.totalInvoiceAmount
+        )
+
+        assertEquals(
+            0,
+            august.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            0,
+            august.invoiceCount
+        )
+
+        assertEquals(
+            5000,
+            august.closingBalance
+        )
+
+        assertEquals(
+            5000,
+            september!!.openingBalance
+        )
+
+        assertEquals(
+            5000,
+            september.totalInvoiceAmount
+        )
+
+        assertEquals(
+            5900,
+            september.totalInvoiceAmountWithGst
+        )
+
+        assertEquals(
+            1,
+            september.invoiceCount
+        )
+
+        assertEquals(
+            10900,
+            september.closingBalance
+        )
+    }
+
+    @Test
+    fun updateOrderFromCurrentMonthToPastMonthKeepsSameOrderId() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Order ID Client",
+                    phone = "9000000023",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-09-10",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        val updatedOrder =
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-08-20"
+                )
+            )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+
+        assertEquals(
+            originalOrder.id,
+            updatedOrder.id
+        )
+    }
+
+    @Test
+    fun updateOrderRejectsFutureDate() {
+
+        val clientService =
+            createClientService()
+
+        val ownerId =
+            "owner-${System.nanoTime()}"
+
+        val client =
+            clientService.create(
+                Client(
+                    ownerId = ownerId,
+                    name = "Future Date Client",
+                    phone = "9000000024",
+                    initialOpeningBalance = 5000,
+                    createdAt = Instant.parse("2026-07-01T10:00:00Z"),
+                    updatedAt = Instant.parse("2026-07-01T10:00:00Z")
+                )
+            )
+
+        val orderService =
+            createOrderService()
+
+        val originalOrder =
+            orderService.create(
+                Order(
+                    ownerId = ownerId,
+                    clientId = client.id,
+                    orderDate = "2026-08-20",
+                    items = listOf(
+                        OrderItem(
+                            name = "Product A",
+                            quantity = 1,
+                            amount = 5000,
+                            gstRate = 18,
+                            gstAmount = 900,
+                            expense = 3000
+                        )
+                    )
+                )
+            )
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+            RuntimeException::class.java
+        ) {
+            orderService.update(
+                ownerId = ownerId,
+                orderId = originalOrder.id,
+                updatedOrder =
+                originalOrder.copy(
+                    orderDate = "2026-09-25"
+                )
             )
         }
     }
 
-    private fun globalSummaryDelta(
-        client: Client,
-        yearMonth: String
-    ): GlobalSummary {
+    private fun createClientService(): ClientService {
 
-        val openingBalance =
-            client.initialOpeningBalance
+        val transactionExecutor =
+            FirestoreTransactionExecutor(firestore)
 
-        return GlobalSummary(
-            ownerId = client.ownerId,
-            yearMonth = yearMonth,
+        val clientRepository =
+            ClientRepository(firestore)
 
-            receivableClientCount =
-            if (openingBalance > 0) 1 else 0,
+        val historyBucketRepository =
+            ClientHistoryBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
 
-            advanceClientCount =
-            if (openingBalance < 0) 1 else 0,
+        val historyRepository =
+            ClientHistoryRepository(firestore)
 
-            settledClientCount =
-            if (openingBalance == 0L) 1 else 0,
+        val globalSummaryRepository =
+            GlobalSummaryRepository(firestore)
 
-            totalReceivableAmount =
-            if (openingBalance > 0) {
-                openingBalance
-            } else {
-                0
-            },
+        val summaryIndexBucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
 
-            totalAdvanceAmount =
-            if (openingBalance < 0) {
-                abs(openingBalance)
-            } else {
-                0
-            }
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
+
+        val maintenanceRepository =
+            MaintenanceRepository(firestore)
+
+        val ownerOperationLockRepository =
+            OwnerOperationLockRepository(
+                firestore = firestore,
+                maintenanceRepository = maintenanceRepository
+            )
+
+        return ClientService(
+            firestore = firestore,
+            transactionExecutor = transactionExecutor,
+            clientRepository = clientRepository,
+            historyBucketRepository = historyBucketRepository,
+            historyRepository = historyRepository,
+            globalSummaryRepository = globalSummaryRepository,
+            summaryIndexBucketRepository = summaryIndexBucketRepository,
+            summaryIndexRepository = summaryIndexRepository,
+            ownerOperationLockRepository = ownerOperationLockRepository,
+            properties = properties,
+            clock = testClock,
+            ownerOperationLockService = ownerOperationLockService
         )
     }
 
-    private fun statusFromOpeningBalance(
-        openingBalance: Long
-    ): ClientType {
+    private fun createOrderService(): OrderService {
 
-        return when {
+        val transactionExecutor =
+            FirestoreTransactionExecutor(firestore)
 
-            openingBalance > 0 ->
-                ClientType.RECEIVABLE
+        val orderRepository =
+            OrderRepository(firestore)
 
-            openingBalance < 0 ->
-                ClientType.ADVANCE
+        val clientRepository =
+            ClientRepository(firestore)
 
-            else ->
-                ClientType.SETTLED
-        }
-    }
+        val historyRepository =
+            ClientHistoryRepository(firestore)
 
-    fun findById(
-        ownerId: String,
-        clientId: String
-    ): Client? {
+        val globalSummaryRepository =
+            GlobalSummaryRepository(firestore)
 
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
+        val summaryIndexBucketRepository =
+            SummaryClientIndexBucketRepository(
+                firestore = firestore,
+                properties = properties
+            )
 
-        require(clientId.isNotBlank()) {
-            "clientId must not be blank"
-        }
+        val summaryIndexRepository =
+            SummaryClientIndexRepository(firestore)
 
-        return clientRepository.findById(
-            ownerId = ownerId,
-            clientId = clientId
-        )
-    }
+        val maintenanceRepository =
+            MaintenanceRepository(firestore)
 
-    fun findPage(
-        ownerId: String,
-        size: Int,
-        cursor: String?
-    ): PageResult<Client> {
+        val ownerOperationLockRepository =
+            OwnerOperationLockRepository(
+                firestore = firestore,
+                maintenanceRepository = maintenanceRepository
+            )
 
-        require(ownerId.isNotBlank()) {
-            "ownerId must not be blank"
-        }
+        val clientEditWindowService =
+            ClientEditWindowService(
+                properties = properties,
+                clock = testClock
+            )
 
-        return clientRepository.findPage(
-            ownerId = ownerId,
-            size = size,
-            cursor = cursor
+        return OrderService(
+            transactionExecutor = transactionExecutor,
+            orderRepository = orderRepository,
+            clientRepository = clientRepository,
+            historyRepository = historyRepository,
+            globalSummaryRepository = globalSummaryRepository,
+            summaryIndexBucketRepository = summaryIndexBucketRepository,
+            summaryIndexRepository = summaryIndexRepository,
+            ownerOperationLockRepository = ownerOperationLockRepository,
+            properties = properties,
+            clock = testClock,
+            ownerOperationLockService = ownerOperationLockService,
+            clientEditWindowService = clientEditWindowService
         )
     }
 }
+
+Important: this test file assumes your current "ClientMonthlyHistory" already contains:
+
+val totalInvoiceAmountWithGst: Long = 0
+val invoiceCount: Long = 0
+
+and that your "ClientHistoryRepository" persists both fields.
+
+Also, this test update exposes an important consequence: your "OrderService" itself must now update "invoiceCount" and reset "totalInvoiceAmountWithGst"/counts in "copyHistoryToNewMonth()". If those service changes haven't been made yet, these tests will correctly fail.
