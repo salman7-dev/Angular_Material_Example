@@ -1,58 +1,15 @@
-
-catch {
-
-    $stopwatch.Stop()
-
-    $elapsedMs = $stopwatch.Elapsed.TotalMilliseconds
-
-    $Failed++
-
-    $statusCode = "N/A"
-    $responseBody = ""
-
-    if ($_.Exception.Response) {
-
-        try {
-            $statusCode = [int]$_.Exception.Response.StatusCode
-        }
-        catch {
-            $statusCode = "N/A"
-        }
-
-        try {
-            $reader = New-Object System.IO.StreamReader(
-                $_.Exception.Response.GetResponseStream()
-            )
-
-            $responseBody = $reader.ReadToEnd()
-            $reader.Close()
-        }
-        catch {
-            $responseBody = $_.Exception.Message
-        }
-    }
-    else {
-        $responseBody = $_.Exception.Message
-    }
-
-    $FailureDetails.Add(
-        [PSCustomObject]@{
-            OrderNumber = $orderNumber
-            Date        = $currentDate.ToString("yyyy-MM-dd")
-            ClientId    = $clientId
-            ItemCount   = $items.Count
-            StatusCode  = $statusCode
-            Error       = $responseBody
-        }
-    )
-
-    Write-Host ""
-    Write-Host "FAILED ORDER" -ForegroundColor Red
-    Write-Host "  Order       : $orderNumber"
-    Write-Host "  Date        : $($currentDate.ToString('yyyy-MM-dd'))"
-    Write-Host "  Client      : $clientId"
-    Write-Host "  Items       : $($items.Count)"
-    Write-Host "  HTTP Status : $statusCode"
-    Write-Host "  Response    : $responseBody" -ForegroundColor Yellow
-    Write-Host ""
-}
+orderNo,clientId,orderDate,deliveryDate,itemName,quantity,unit,amount,gstRate,gstAmount,expense
+ORD-001,CLI-MUXZMK5L,2026-04-01,2026-04-02,Cotton Shirt,2,SINGLE,2000,18,360,200
+ORD-001,CLI-MUXZMK5L,2026-04-01,2026-04-02,Formal Trouser,1,SINGLE,1800,12,216,150
+ORD-002,CLI-MUXZMK5L,2026-04-02,2026-04-03,Packaging Box,5,BOX,5000,12,600,300
+ORD-002,CLI-MUXZMK5L,2026-04-02,2026-04-03,Labels,10,DOZEN,3000,5,150,100
+ORD-003,CLI-MUXZMK5L,2026-04-03,2026-04-04,Product A,1,SINGLE,3500,18,630,400
+ORD-004,CLI-MUXZMK5L,2026-04-05,2026-04-06,Product B,3,BOX,7500,12,900,500
+ORD-004,CLI-MUXZMK5L,2026-04-05,2026-04-06,Product C,2,SINGLE,2400,5,120,200
+ORD-005,CLI-MUXZMK5L,2026-04-10,2026-04-11,Raw Material,4,DOZEN,8000,18,1440,750
+ORD-006,CLI-MUXZMK5L,2026-04-15,2026-04-16,Finished Goods,10,BOX,15000,12,1800,1200
+ORD-007,CLI-MUXZMK5L,2026-04-20,2026-04-21,Service Item,1,SINGLE,10000,18,1800,1000
+ORD-008,CLI-MUXZMK5L,2026-04-25,2026-04-26,Premium Product,2,SINGLE,12000,18,2160,1500
+ORD-009,CLI-MUXZMK5L,2026-04-28,2026-04-29,Standard Product,5,BOX,9000,12,1080,700
+ORD-009,CLI-MUXZMK5L,2026-04-28,2026-04-29,Accessories,6,SINGLE,3600,5,180,250
+ORD-010,CLI-MUXZMK5L,2026-04-30,2026-05-01,Bulk Product,10,BOX,20000,18,3600,1800
