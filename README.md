@@ -26,10 +26,6 @@ object OrderDiscountCalculator {
             sum.add(money(item.originalAmount))
         }
 
-        require(discount <= originalItemsTotal) {
-            "Discount cannot exceed original taxable amount"
-        }
-
         require(
             money(order.originalTotalInvoiceAmount)
                 .compareTo(originalItemsTotal) == 0
@@ -37,10 +33,18 @@ object OrderDiscountCalculator {
             "Original order total does not match original item amounts"
         }
 
-        val updatedItems = allocateDiscount(
+        val currentGrossTotal = order.items.fold(ZERO) { sum, item ->
+            sum.add(money(item.amount).add(money(item.gstAmount)))
+        }
+
+        require(discount <= currentGrossTotal) {
+            "Discount cannot exceed the current GST-inclusive total"
+        }
+
+        val updatedItems = allocateGrossDiscount(
             items = order.items,
             discount = discount,
-            originalItemsTotal = originalItemsTotal
+            currentGrossTotal = currentGrossTotal
         )
 
         val totalTaxableAmount = updatedItems.fold(ZERO) { sum, item ->
@@ -51,57 +55,47 @@ object OrderDiscountCalculator {
             sum.add(item.gstAmount)
         }
 
-        val calculatedGrossAmount =
-            totalTaxableAmount.add(totalGstAmount)
+        val calculatedGrossTotal = totalTaxableAmount.add(totalGstAmount)
 
-        // Round the GST-inclusive total to the nearest whole rupee.
-        val roundedGrossAmount = calculatedGrossAmount
+        val roundedGrossTotal = calculatedGrossTotal
             .setScale(0, RoundingMode.HALF_UP)
             .setScale(MONEY_SCALE)
 
-        // Can be positive, negative, or zero.
-        val roundOffAmount = roundedGrossAmount
-            .subtract(calculatedGrossAmount)
+        val roundOffAmount = roundedGrossTotal
+            .subtract(calculatedGrossTotal)
             .setScale(MONEY_SCALE, RoundingMode.UNNECESSARY)
 
         val totalExpense = money(order.totalExpense)
-
-        // Retains the existing calculator's profit formula.
         val profitAmount = totalTaxableAmount.subtract(totalExpense)
 
         return order.copy(
-            // Current values are updated.
             items = updatedItems,
             totalInvoiceAmount = totalTaxableAmount,
             totalGstAmount = totalGstAmount,
-            totalInvoiceAmountWithGst = roundedGrossAmount,
+            totalInvoiceAmountWithGst = roundedGrossTotal,
             orderDiscount = discount,
             roundOffAmount = roundOffAmount,
             totalExpense = totalExpense,
             profitAmount = money(profitAmount)
-
-            // Original order totals are intentionally not changed.
         )
     }
 
-    private fun allocateDiscount(
+    private fun allocateGrossDiscount(
         items: List<OrderItem>,
         discount: BigDecimal,
-        originalItemsTotal: BigDecimal
+        currentGrossTotal: BigDecimal
     ): List<OrderItem> {
         if (items.isEmpty()) {
             require(discount.compareTo(ZERO) == 0) {
                 "Cannot apply a discount to an order without items"
             }
-
             return emptyList()
         }
 
-        if (originalItemsTotal.compareTo(ZERO) == 0) {
+        if (currentGrossTotal.compareTo(ZERO) == 0) {
             require(discount.compareTo(ZERO) == 0) {
-                "Cannot apply a discount when original total is zero"
+                "Cannot apply a discount when the current total is zero"
             }
-
             return items.map { item ->
                 item.copy(
                     amount = ZERO,
@@ -110,51 +104,62 @@ object OrderDiscountCalculator {
             }
         }
 
-        // Allocate any paise-level remainder to the largest item.
-        val remainderIndex = items.indices.maxBy {
-            items[it].originalAmount
+        val remainderIndex = items.indices.maxBy { index ->
+            money(items[index].amount)
+                .add(money(items[index].gstAmount))
         }
 
-        var allocatedSoFar = ZERO
+        var allocatedDiscount = ZERO
 
         return items.mapIndexed { index, item ->
-            val originalAmount = money(item.originalAmount)
-            val remainingDiscount = discount.subtract(allocatedSoFar)
+            val currentAmount = money(item.amount)
+            val currentGst = money(item.gstAmount)
+            val itemGross = currentAmount.add(currentGst)
 
-            val allocatedDiscount =
+            val remainingDiscount = discount.subtract(allocatedDiscount)
+
+            val itemDiscount =
                 if (index == remainderIndex) {
                     remainingDiscount
                 } else {
                     discount
-                        .multiply(originalAmount)
+                        .multiply(itemGross)
                         .divide(
-                            originalItemsTotal,
+                            currentGrossTotal,
                             MONEY_SCALE,
                             RoundingMode.HALF_UP
                         )
-                        .min(originalAmount)
+                        .min(itemGross)
                         .min(remainingDiscount)
                 }.setScale(MONEY_SCALE, RoundingMode.UNNECESSARY)
 
-            allocatedSoFar = allocatedSoFar.add(allocatedDiscount)
+            allocatedDiscount = allocatedDiscount.add(itemDiscount)
 
-            val discountedAmount = originalAmount
-                .subtract(allocatedDiscount)
+            val discountedGross = itemGross
+                .subtract(itemDiscount)
                 .setScale(MONEY_SCALE, RoundingMode.UNNECESSARY)
 
-            // GST is calculated only from the current amount and GST rate.
-            val recalculatedGst = discountedAmount
-                .multiply(BigDecimal.valueOf(item.gstRate.toLong()))
+            // Keep the GST rate unchanged.
+            // Split discounted GST-inclusive value into taxable amount and GST.
+            val divisor = HUNDRED.add(
+                BigDecimal.valueOf(item.gstRate.toLong())
+            )
+
+            val recalculatedAmount = discountedGross
+                .multiply(HUNDRED)
                 .divide(
-                    HUNDRED,
+                    divisor,
                     MONEY_SCALE,
                     RoundingMode.HALF_UP
                 )
 
+            val recalculatedGst = discountedGross
+                .subtract(recalculatedAmount)
+                .setScale(MONEY_SCALE, RoundingMode.HALF_UP)
+
             item.copy(
-                // originalAmount, gstRate, and other unspecified
-                // properties remain unchanged.
-                amount = discountedAmount,
+                // originalAmount and gstRate remain unchanged.
+                amount = recalculatedAmount,
                 gstAmount = recalculatedGst
             )
         }
